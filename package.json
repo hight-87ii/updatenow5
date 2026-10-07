@@ -11,7 +11,10 @@
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "lint": "pnpm -r run lint",
-    "typecheck": "pnpm --filter api run typecheck && pnpm --filter web run typecheck"
+    "typecheck": "pnpm --filter api run typecheck && pnpm --filter web run typecheck",
+    "setup:local": "pnpm install --frozen-lockfile && pnpm --filter api exec prisma generate && pnpm --filter api exec prisma migrate deploy",
+    "verify:s01": "node scripts/verify-s01-gates.mjs",
+    "verify:rollback": "node scripts/verify-s01-rollback.mjs"
   },
   "dependencies": {},
   "devDependencies": {

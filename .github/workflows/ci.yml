@@ -236,3 +236,32 @@ jobs:
           name: t31-product-holds
           path: evidence/holds/20261004
           if-no-files-found: error
+
+  # S-01 AC1/AC2: deploy-readiness gate. `needs` guarantees this job NEVER
+  # runs when build/lint/test fail, so a failing test blocks deploy by
+  # construction. Offline only: validates render.yaml Free profile, secret
+  # hygiene, compose health wiring and health-contract presence. It does NOT
+  # deploy and is not staging evidence.
+  staging-gate:
+    name: S-01 / staging-gate
+    needs: [build, lint, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.15.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: S-01 deploy-readiness gates (offline)
+        run: node scripts/verify-s01-gates.mjs
+      - name: Render Free profile guard (offline)
+        run: python3 scripts/verify-render-profile.py

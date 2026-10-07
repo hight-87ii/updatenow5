@@ -25,5 +25,55 @@ services:
       timeout: 5s
       retries: 5
 
+  # Optional one-command S-01 boot: `docker compose --profile app up -d --wait`.
+  # Default `docker compose up` still starts postgres+redis only, so the
+  # documented pnpm dev flow (TECH-01) is unchanged.
+  api:
+    build:
+      context: .
+      target: api
+    profiles: [app]
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      PORT: "3001"
+      SERVICE_ROLE: api
+      DATABASE_URL: postgresql://${POSTGRES_USER:?Set POSTGRES_USER in root .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in root .env}@postgres:5432/${POSTGRES_DB:?Set POSTGRES_DB in root .env}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      WEB_ORIGIN: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+
+  web:
+    build:
+      context: .
+      target: web
+    profiles: [app]
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      PORT: "3000"
+      SERVICE_ROLE: web
+      API_INTERNAL_URL: http://api:3001
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+
 volumes:
   postgres_data:

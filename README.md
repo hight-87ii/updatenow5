@@ -32,6 +32,11 @@ Nếu đã có volume PostgreSQL từ lần chạy trước, đổi `POSTGRES_US
 
 ## 3. Khởi động dữ liệu và cài dependency
 
+> S-01 nhánh `uds01`: `pnpm setup:local` gộp install + generate + migrate một lệnh;
+> `docker compose --profile app up -d --wait` boot đủ postgres/redis/api/web cho drill
+> local (mặc định không profile vẫn chỉ PG/Redis như flow cũ). Chi tiết gate và phần
+> còn chờ staging: [docs/S01_STAGING_GATES.md](docs/S01_STAGING_GATES.md).
+
 ```powershell
 docker compose up -d --wait postgres redis
 pnpm install --frozen-lockfile
