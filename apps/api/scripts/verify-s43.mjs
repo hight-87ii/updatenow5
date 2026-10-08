@@ -268,6 +268,10 @@ async function benchmark(a, b) {
         (v, r) => ((v[r.status] = (v[r.status] ?? 0) + 1), v),
         {},
       ),
+      failures: results
+        .filter((r) => r.status !== 200 && r.status !== 409)
+        .slice(0, 5)
+        .map((r) => ({ status: r.status, body: r.data })),
     };
   };
   report.benchmarkWarmup = [];
@@ -285,6 +289,30 @@ async function benchmark(a, b) {
       for (const [position, enabled] of order.entries()) {
         await instrumentation(enabled);
         const warmup = await batch();
+        if (!(warmup.statuses[200] === 100 && warmup.statuses[409] === 100)) {
+          const routeStatus = (text) =>
+            text
+              .split('\n')
+              .filter(
+                (l) =>
+                  l.startsWith('ticket_http_requests_total{') &&
+                  l.includes('route="/showtimes/:id/holds"'),
+              )
+              .reduce((v, l) => {
+                const m = l.match(/status="(\d+)"/);
+                if (m)
+                  v[m[1]] = Number(v[m[1]] ?? 0) + Number(l.split(' ').at(-1));
+                return v;
+              }, {});
+          report.warmupForensics = {
+            statuses: warmup.statuses,
+            samples: warmup.failures,
+            exporterHoldsRoute: {
+              'api-a': routeStatus(exported('api-a')),
+              'api-b': routeStatus(exported('api-b')),
+            },
+          };
+        }
         check(
           warmup.statuses[200] === 100 && warmup.statuses[409] === 100,
           `benchmark warmup atomic hold invariant 100 successes / 100 conflicts: ${JSON.stringify(warmup.statuses)}`,
