@@ -16,6 +16,7 @@ import { SeatMap } from "@/components/seat-map/seat-map";
 import { SeatPricingForm } from "@/features/seat-pricing/seat-pricing-form";
 import { SeatMapImportForm } from "@/features/seat-map-import/seat-map-import-form";
 import { SaleStatusControl } from "./sale-status-control";
+import { ShowtimeCloneForm } from "./showtime-clone-form";
 export function ShowtimeWorkspace({
   id,
   mode,
@@ -191,6 +192,7 @@ export function ShowtimeWorkspace({
           </aside>
           <div>
             <SaleStatusControl key={id} show={show} onChanged={refresh} />
+            <ShowtimeCloneForm key={`clone-${id}`} id={id} />
           </div>
         </div>
       )}
