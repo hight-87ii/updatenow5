@@ -14,7 +14,10 @@
     "typecheck": "pnpm --filter api run typecheck && pnpm --filter web run typecheck",
     "setup:local": "pnpm install --frozen-lockfile && pnpm --filter api exec prisma generate && pnpm --filter api exec prisma migrate deploy",
     "verify:s01": "node scripts/verify-s01-gates.mjs",
-    "verify:rollback": "node scripts/verify-s01-rollback.mjs"
+    "verify:rollback": "node scripts/verify-s01-rollback.mjs",
+    "backup:s55": "node scripts/s55-backup.mjs --keep 14",
+    "restore:s55": "node scripts/s55-restore.mjs",
+    "verify:s55": "node --test scripts/s55-retention.spec.mjs"
   },
   "dependencies": {},
   "devDependencies": {
