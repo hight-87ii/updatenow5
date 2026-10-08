@@ -36,6 +36,13 @@ export type OrderItem = {
   unitPrice: number;
 };
 
+export type DiscountCodeInfo = {
+  id: string;
+  code: string;
+  type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+  value: number;
+};
+
 export type OrderDetail = {
   id: string;
   status: OrderStatus;
@@ -59,6 +66,8 @@ export type OrderDetail = {
     startTime: string;
   };
   items: OrderItem[];
+  discountAmount: number;
+  discountCode: DiscountCodeInfo | null;
 };
 
 const invalid = (field?: string): never => {
@@ -198,6 +207,29 @@ export function decodeOrderDetail(value: unknown): OrderDetail {
     };
   });
 
+  // Optional discount fields
+  let discountAmount = 0;
+  let discountCode: DiscountCodeInfo | null = null;
+  if (typeof o.discountAmount === "number") {
+    discountAmount = o.discountAmount;
+  }
+  if (o.discountCode && typeof o.discountCode === "object") {
+    const dc = object(o.discountCode);
+    if (
+      typeof dc.id === "string" &&
+      typeof dc.code === "string" &&
+      (dc.type === "PERCENTAGE" || dc.type === "FIXED_AMOUNT") &&
+      typeof dc.value === "number"
+    ) {
+      discountCode = {
+        id: dc.id,
+        code: dc.code,
+        type: dc.type,
+        value: dc.value,
+      };
+    }
+  }
+
   const expiresAt = (o.expiresAt ?? o.paymentExpiresAt) as string;
 
   return {
@@ -226,6 +258,64 @@ export function decodeOrderDetail(value: unknown): OrderDetail {
       startTime: showtimeObj.startTime,
     },
     items,
+    discountAmount,
+    discountCode,
+  };
+}
+
+export type ApplyDiscountResponse = {
+  orderId: string;
+  originalTotal: number;
+  discountAmount: number;
+  finalTotal: number;
+  discountCode: {
+    id: string;
+    code: string;
+    type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+    value: number;
+  };
+};
+
+export function decodeApplyDiscountResponse(value: unknown): ApplyDiscountResponse {
+  const o = object(value);
+  if (
+    typeof o.orderId !== "string" ||
+    typeof o.originalTotal !== "number" ||
+    typeof o.discountAmount !== "number" ||
+    typeof o.finalTotal !== "number" ||
+    !o.discountCode ||
+    typeof o.discountCode !== "object"
+  ) {
+    throw new ApiError(
+      "Không đọc được kết quả áp dụng mã giảm giá.",
+      502,
+      "INVALID_RESPONSE",
+    );
+  }
+  const dc = object(o.discountCode);
+  if (
+    typeof dc.id !== "string" ||
+    typeof dc.code !== "string" ||
+    (dc.type !== "PERCENTAGE" && dc.type !== "FIXED_AMOUNT") ||
+    typeof dc.value !== "number"
+  ) {
+    throw new ApiError(
+      "Không đọc được thông tin mã giảm giá.",
+      502,
+      "INVALID_RESPONSE",
+    );
+  }
+  return {
+    orderId: o.orderId,
+    originalTotal: o.originalTotal,
+    discountAmount: o.discountAmount,
+    finalTotal: o.finalTotal,
+    discountCode: {
+      id: dc.id,
+      code: dc.code,
+      type: dc.type,
+      value: dc.value,
+    },
   };
 }
 

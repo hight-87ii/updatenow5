@@ -20,6 +20,7 @@ model User {
   events            Event[]       @relation("OrganizerEvents")
   holdSessions      HoldSession[]
   orders            Order[]
+  createdDiscounts DiscountCode[] @relation("DiscountCodeCreator")
 
   @@map("users")
 }
@@ -69,6 +70,7 @@ model Event {
   organizer        User       @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: Restrict)
   showtimes        Showtime[]
   orders           Order[]
+  discountCodes    DiscountCode[]
   createdAt        DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime   @updatedAt @db.Timestamptz(3)
 
@@ -192,8 +194,12 @@ model Order {
   paymentExpiresAt DateTime     @db.Timestamptz(3)
   expiresAt        DateTime?    @db.Timestamptz(3)
   totalAmount      Int
+  discountAmount   Int          @default(0)
+  discountCodeId   String?      @db.Uuid
+  discountCode     DiscountCode? @relation(fields: [discountCodeId], references: [id], onDelete: SetNull)
   items            OrderItem[]
   payments         Payment[]
+  discountUsages   DiscountUsage[]
   createdAt        DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
 
@@ -203,6 +209,7 @@ model Order {
   @@index([userId, showtimeId, status])
   @@index([status, paymentExpiresAt])
   @@index([expiresAt])
+  @@index([discountCodeId])
   @@map("orders")
 }
 
@@ -253,4 +260,47 @@ model Payment {
   @@index([transactionId])
   @@index([status])
   @@map("payments")
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model DiscountCode {
+  id            String         @id @default(uuid()) @db.Uuid
+  code          String         @unique
+  eventId       String         @db.Uuid
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  type          DiscountType
+  value         Int
+  maxUses       Int
+  usedCount     Int            @default(0)
+  validFrom     DateTime       @db.Timestamptz(3)
+  validTo       DateTime       @db.Timestamptz(3)
+  isActive      Boolean        @default(true)
+  createdBy     String         @db.Uuid
+  creator       User           @relation("DiscountCodeCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  usages        DiscountUsage[]
+  orders        Order[]
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
+
+  @@index([eventId])
+  @@index([code])
+  @@map("discount_codes")
+}
+
+model DiscountUsage {
+  id             String       @id @default(uuid()) @db.Uuid
+  discountCodeId String       @db.Uuid
+  discountCode   DiscountCode @relation(fields: [discountCodeId], references: [id], onDelete: Cascade)
+  orderId        String       @db.Uuid
+  order          Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount         Int
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@unique([discountCodeId, orderId])
+  @@index([orderId])
+  @@map("discount_usages")
 }

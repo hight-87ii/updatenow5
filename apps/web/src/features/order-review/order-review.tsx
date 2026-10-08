@@ -12,6 +12,8 @@ import {
   MapPin,
   CalendarDays,
   Ticket,
+  Theater,
+  Close,
 } from "@/components/ui/material-icon";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -32,6 +34,7 @@ import { loadCurrentUser } from "@/lib/api";
 import {
   decodeOrderDetail,
   decodePayResponse,
+  decodeApplyDiscountResponse,
   type OrderDetail,
 } from "@/lib/contracts/orders";
 import { formatVnd, formatShowtime } from "@/lib/formatting";
@@ -40,6 +43,7 @@ import {
   remainingSeconds,
   type ServerClock,
 } from "@/features/seat-selection/server-countdown";
+import { Input } from "@/components/ui/input";
 
 export interface OrderReviewProps {
   id: string;
@@ -58,6 +62,10 @@ export function OrderReview({ id, onPay }: OrderReviewProps) {
   const [notFound, setNotFound] = useState<boolean>(false);
   const [paying, setPaying] = useState<boolean>(false);
   const [payError, setPayError] = useState<string>("");
+  const [discountCode, setDiscountCode] = useState<string>("");
+  const [applyingDiscount, setApplyingDiscount] = useState<boolean>(false);
+  const [discountError, setDiscountError] = useState<string>("");
+  const [discountSuccess, setDiscountSuccess] = useState<string>("");
   const alive = useRef(true);
 
   const refresh = useCallback(async () => {
@@ -189,6 +197,77 @@ export function OrderReview({ id, onPay }: OrderReviewProps) {
           : "Không thể khởi tạo thanh toán. Vui lòng thử lại.",
       );
       setPaying(false);
+    }
+  };
+
+  const handleApplyDiscount = async () => {
+    const code = discountCode.trim().toUpperCase();
+    if (!code) {
+      setDiscountError("Vui lòng nhập mã giảm giá.");
+      return;
+    }
+    setApplyingDiscount(true);
+    setDiscountError("");
+    setDiscountSuccess("");
+    try {
+      const result = await api(
+        `/orders/${id}/discount`,
+        decodeApplyDiscountResponse,
+        {
+          method: "POST",
+          body: JSON.stringify({ code }),
+        },
+      );
+      setOrder((prev) =>
+        prev
+          ? {
+              ...prev,
+              totalAmount: result.finalTotal,
+              discountAmount: result.discountAmount,
+              discountCode: result.discountCode,
+            }
+          : null,
+      );
+      setDiscountSuccess(`Đã áp dụng mã "${result.discountCode.code}" giảm ${formatVnd(result.discountAmount)}.`);
+      setDiscountCode("");
+    } catch (err) {
+      setDiscountError(
+        err instanceof Error
+          ? err.message
+          : "Không thể áp dụng mã giảm giá. Vui lòng thử lại.",
+      );
+    } finally {
+      setApplyingDiscount(false);
+    }
+  };
+
+  const handleRemoveDiscount = async () => {
+    if (!order?.discountCode) return;
+    setApplyingDiscount(true);
+    setDiscountError("");
+    try {
+      await api(`/orders/${id}/discount`, () => undefined, {
+        method: "DELETE",
+      });
+      setOrder((prev) =>
+        prev
+          ? {
+              ...prev,
+              totalAmount: prev.totalAmount + prev.discountAmount,
+              discountAmount: 0,
+              discountCode: null,
+            }
+          : null,
+      );
+      setDiscountSuccess("Đã xoá mã giảm giá.");
+    } catch (err) {
+      setDiscountError(
+        err instanceof Error
+          ? err.message
+          : "Không thể xoá mã giảm giá. Vui lòng thử lại.",
+      );
+    } finally {
+      setApplyingDiscount(false);
     }
   };
 
@@ -425,6 +504,80 @@ export function OrderReview({ id, onPay }: OrderReviewProps) {
                 </TableBody>
               </Table>
               <Separator />
+              
+              {/* Discount Code Input */}
+              {!expired && (order.status === "PENDING" || order.status === "PENDING_PAYMENT") && (
+                <div className="p-4 bg-muted/30 border-y space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Theater className="h-5 w-5 text-primary" />
+                    <span className="text-sm font-medium">Mã giảm giá</span>
+                  </div>
+                  {order.discountCode ? (
+                    <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Theater className="h-4 w-4 text-green-600" />
+                        <div>
+                          <div className="text-sm font-medium text-green-800">
+                            Mã: {order.discountCode.code}
+                          </div>
+                          <div className="text-xs text-green-600">
+                            {order.discountCode.type === "PERCENTAGE"
+                              ? `Giảm ${order.discountCode.value}%`
+                              : `Giảm ${formatVnd(order.discountCode.value)}`}
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleRemoveDiscount}
+                        disabled={applyingDiscount}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <Close className="h-4 w-4 mr-1" /> Xoá
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Input
+                        type="text"
+                        placeholder="Nhập mã giảm giá"
+                        value={discountCode}
+                        onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => e.key === "Enter" && handleApplyDiscount()}
+                        disabled={applyingDiscount}
+                        className="flex-1"
+                        maxLength={20}
+                      />
+                      <Button
+                        onClick={handleApplyDiscount}
+                        disabled={applyingDiscount || !discountCode.trim()}
+                        className="whitespace-nowrap"
+                      >
+                        {applyingDiscount ? (
+                          <>
+                            <RotateCw className="mr-2 h-4 w-4 animate-spin" />
+                            Đang áp dụng...
+                          </>
+                        ) : (
+                          "Áp dụng"
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                  {discountError && (
+                    <p className="text-sm text-destructive" role="alert">
+                      {discountError}
+                    </p>
+                  )}
+                  {discountSuccess && (
+                    <p className="text-sm text-green-600" role="status">
+                      {discountSuccess}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="p-5 bg-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-sm text-muted-foreground">
                   Tổng cộng:{" "}
@@ -432,16 +585,42 @@ export function OrderReview({ id, onPay }: OrderReviewProps) {
                     {order.items.length} vé
                   </strong>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider block">
-                    Tổng tiền thanh toán
-                  </span>
-                  <span
-                    className="text-2xl sm:text-3xl font-extrabold text-primary"
-                    data-testid="total-amount"
-                  >
-                    {formatVnd(order.totalAmount)}
-                  </span>
+                <div className="text-right w-full sm:w-auto">
+                  {order.discountCode && order.discountAmount > 0 ? (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Tạm tính</span>
+                        <span className="text-foreground line-through">
+                          {formatVnd(order.totalAmount + order.discountAmount)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm text-green-600">
+                        <span>Giảm giá ({order.discountCode.code})</span>
+                        <span>-{formatVnd(order.discountAmount)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-muted-foreground border-t pt-1">
+                        <span>Tổng tiền thanh toán</span>
+                        <span
+                          className="text-2xl sm:text-3xl font-extrabold text-primary"
+                          data-testid="total-amount"
+                        >
+                          {formatVnd(order.totalAmount)}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider block">
+                        Tổng tiền thanh toán
+                      </span>
+                      <span
+                        className="text-2xl sm:text-3xl font-extrabold text-primary"
+                        data-testid="total-amount"
+                      >
+                        {formatVnd(order.totalAmount)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
