@@ -13,6 +13,7 @@ import { HoldsModule } from './holds/holds.module.js';
 import { OrdersModule } from './orders/orders.module.js';
 import { PaymentsModule } from './payments/payments.module.js';
 import { MonitoringModule } from './monitoring/monitoring.module.js';
+import { WaitingModule } from './waiting/waiting.module.js';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { MonitoringModule } from './monitoring/monitoring.module.js';
     OrdersModule,
     PaymentsModule,
     MonitoringModule,
+    WaitingModule,
   ],
   controllers: [AppController],
   providers: [AppService],
