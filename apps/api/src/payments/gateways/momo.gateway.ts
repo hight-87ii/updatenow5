@@ -146,46 +146,17 @@ export class MomoGateway implements PaymentGateway {
     };
   }
 
-  private extractPayload(rawBody: unknown): Record<string, unknown> | null {
-    if (!rawBody) return null;
-    if (Buffer.isBuffer(rawBody)) {
-      try {
-        const text = rawBody.toString('utf8');
-        const parsed = JSON.parse(text);
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-          ? parsed
-          : null;
-      } catch {
-        return null;
-      }
-    }
-    if (typeof rawBody === 'string') {
-      try {
-        const parsed = JSON.parse(rawBody);
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-          ? parsed
-          : null;
-      } catch {
-        return null;
-      }
-    }
-    if (typeof rawBody === 'object' && !Array.isArray(rawBody)) {
-      return rawBody as Record<string, unknown>;
-    }
-    return null;
-  }
-
   async verifyWebhook(
     rawBody: unknown,
     _headers: Record<string, string | string[] | undefined>,
   ): Promise<boolean> {
-    const payload = this.extractPayload(rawBody);
-    if (!payload) {
+    if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
       return false;
     }
 
+    const payload = rawBody as Record<string, unknown>;
     const receivedSignature = payload.signature;
-    if (typeof receivedSignature !== 'string' || !receivedSignature.trim()) {
+    if (typeof receivedSignature !== 'string' || !receivedSignature) {
       return false;
     }
 
@@ -199,11 +170,11 @@ export class MomoGateway implements PaymentGateway {
   }
 
   async parseWebhook(rawBody: unknown): Promise<PaymentWebhookEvent> {
-    const payload = this.extractPayload(rawBody);
-    if (!payload) {
+    if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
       throw new Error('Dữ liệu webhook không hợp lệ.');
     }
 
+    const payload = rawBody as Record<string, unknown>;
     const gatewayRef =
       typeof payload.orderId === 'string'
         ? payload.orderId

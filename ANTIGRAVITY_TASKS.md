@@ -1,6 +1,6 @@
 # Hướng dẫn triển khai: Module Thanh toán & Đơn hàng
 
-Tài liệu này dành cho agent trong Antigravity IDE. Dự án là web quản lý sự kiện có sơ đồ ghế. Các phần đã có: đăng nhập, đăng ký, sơ đồ ghế, chọn ghế (giữ chỗ). Cần làm thêm 8 story thuộc Epic **Thanh toán và đơn hàng** (S-17 → S-24).
+Tài liệu này dành cho agent trong Antigravity IDE. Dự án là web quản lý sự kiện có sơ đồ ghế. Các phần đã có: đăng nhập, đăng ký, sơ đồ ghế, chọn ghế (giữ chỗ). Cần làm thêm 5 story thuộc Epic **Thanh toán và đơn hàng** (S-17 → S-21).
 
 **Quy tắc quan trọng nhất: mỗi story làm trên MỘT branch riêng, làm xong một story thì dừng lại và báo cáo, không tự động chuyển sang story tiếp theo.**
 
@@ -12,7 +12,7 @@ Người dùng sẽ ra lệnh theo mẫu: *"Làm story S-17 theo file ANTIGRAVIT
 
 1. Đọc **Phần 1 (Quy tắc chung)** và đúng **một** mục story được yêu cầu.
 2. Thực hiện **Bước 0 (khám phá codebase)** trước khi viết bất kỳ dòng code nào.
-3. Tạo branch đúng tên, code, viết test, commit, rồi báo cáo theo mẫu ở Phần 10.
+3. Tạo branch đúng tên, code, viết test, commit, rồi báo cáo theo mẫu ở Phần 7.
 
 ## 1. Quy tắc chung (áp dụng cho mọi story)
 
@@ -54,7 +54,7 @@ Nếu thông tin nào **không tìm thấy hoặc không chắc chắn**, hãy h
 |---|---|
 | Đơn (Order) | `PENDING` (chờ thanh toán), `PAID` (đã trả), `EXPIRED` (hết hạn/huỷ), `NEEDS_REVIEW` (cần kiểm tra) |
 | Ghế (Seat) | `AVAILABLE`, `HELD` (đang giữ), `SOLD` (đã bán) |
-| Thanh toán (Payment) | `INITIATED`, `SUCCEEDED`, `FAILED`, `AMOUNT_MISMATCH`, `LATE` (tiền về nhưng không dùng được: sau khi đơn hết hạn, hoặc khi đơn đã được thanh toán bằng giao dịch khác) |
+| Thanh toán (Payment) | `INITIATED`, `SUCCEEDED`, `FAILED`, `AMOUNT_MISMATCH`, `LATE` (tiền về sau khi đơn hết hạn) |
 
 Một đơn được coi là **hết hạn** khi `status = PENDING` và `now > expiresAt`, kể cả khi job dọn dẹp chưa chạy. Tạo một hàm dùng chung (ví dụ `isOrderExpired(order, now)`) ở S-17 và các story sau tái sử dụng.
 
@@ -65,7 +65,7 @@ Mỗi story phải kèm test tự động cho **từng** tiêu chí chấp nhậ
 ### 1.6. Thứ tự và phụ thuộc
 
 ```
-S-17 → S-18 → S-19 → S-20 → S-21 → S-22 → S-23 → S-24
+S-17 → S-18 → S-19 → S-20 → S-21
 ```
 
 | Story | Phụ thuộc | Ghi chú |
@@ -75,9 +75,6 @@ S-17 → S-18 → S-19 → S-20 → S-21 → S-22 → S-23 → S-24
 | S-19 | S-18 | Cài đặt cổng giả lập theo interface của S-18 |
 | S-20 | S-18, S-19 | Làm webhook idempotent |
 | S-21 | S-18, S-19 | Xác thực chữ ký webhook |
-| S-22 | S-17, S-18, S-19, S-20 | Hoàn thiện trang kết quả thanh toán; thêm API trạng thái và trường `latestPayment` |
-| S-23 | S-17, S-18, S-20 | Job nhả ghế đơn quá hạn; chỉnh nhánh "thanh toán trễ" của S-20 qua `expireOrder`. Chưa có S-23 (hoặc cơ chế nhả ghế tương đương) thì ghế của đơn bỏ dở không được trả lại |
-| S-24 | S-18, S-22, S-23 | Thanh toán lại trên cùng đơn, nhật ký đơn |
 
 Nên merge từng PR theo thứ tự rồi mới tạo branch kế tiếp từ nhánh mặc định. Nếu story trước chưa merge, tạo branch mới **từ branch của story trước** và ghi rõ trong PR.
 
@@ -166,7 +163,7 @@ Endpoint webhook (ví dụ `POST /api/payments/webhook`) theo pipeline: **xác t
 
 **4. Trang kết quả thanh toán**
 - Route ví dụ `/payment/result?orderId=...`. **Không tin tham số trên URL** để quyết định thành công, luôn đọc trạng thái đơn từ API.
-- Nếu đơn vẫn `PENDING` khi user vừa quay về, polling trạng thái đơn (2 giây/lần, tối đa 60 giây) vì webhook có thể đến chậm. Hiển thị: đã trả / đang xác nhận / thất bại, có nút quay lại đơn hoặc thử lại. Phần này được hoàn thiện và chuẩn hoá ở S-22 (nếu có chỗ khác nhau thì S-22 là bản chuẩn).
+- Nếu đơn vẫn `PENDING` khi user vừa quay về, polling trạng thái đơn (ví dụ 2 giây/lần, tối đa khoảng 30 giây) vì webhook có thể đến chậm. Hiển thị: đã trả / đang xác nhận / thất bại, có nút quay lại đơn hoặc thử lại.
 
 ### Tiêu chí chấp nhận (cần test)
 - [ ] Đơn `PENDING` còn hạn, bấm thanh toán: nhận `redirectUrl` đến trang cổng với đúng số tiền và mã đơn.
@@ -307,173 +304,7 @@ Giới hạn tần suất (rate limit), allow-list IP của cổng (có thể đ
 
 ---
 
-## 7. S-22: Trang kết quả thanh toán chờ xác nhận từ máy chủ, không tự kết luận
-
-- **Branch:** `S-22-trang-ket-qua-thanh-toan-cho-xac-nhan-tu-may-chu-khong-tu-ket-luan`
-- **Phụ thuộc:** S-17, S-18, S-19, S-20 (cần luồng webhook và cổng giả lập đã chạy được).
-
-### Mục tiêu
-Trang kết quả luôn nói đúng trạng thái thật của đơn theo máy chủ, để người mua không thấy "thành công" rồi sau đó nhận email huỷ. Story này hoàn thiện trang kết quả đã dựng sơ bộ ở S-18 (mục "4. Trang kết quả thanh toán"); chỗ nào khác nhau thì **S-22 là bản chuẩn**.
-
-### Việc cần làm
-
-**1. API trạng thái nhẹ để hỏi lại (backend)**
-- Thêm `GET` trạng thái đơn (ví dụ `/api/orders/:id/status`) với cùng quy tắc đăng nhập và kiểm quyền chủ đơn như API chi tiết đơn ở S-17.
-- Trả về tối thiểu: `status` của đơn, `expiresAt`, `serverTime`, và `latestPayment` (gồm `status` theo mục 1.4 và `attemptNo` của lần thanh toán gần nhất, hoặc `null` nếu chưa có lần nào).
-- Chỉ đọc, **không có tác dụng phụ** (không đổi trạng thái đơn, không gọi cổng thanh toán). Gắn `Cache-Control: no-store`.
-- Thêm cùng trường `latestPayment` vào API chi tiết đơn của S-17 để S-24 dùng lại. Chỉ thêm trường, không đổi trường cũ.
-
-**2. Mã đơn lấy từ đâu**
-- Khi dựng `returnUrl` (S-18/S-19), hệ thống tự đặt **mã đơn nội bộ** vào URL, khuyến nghị dạng path (ví dụ `/payment/result/:orderId`). Trang kết quả chỉ dùng mã này để biết cần hỏi máy chủ về đơn nào.
-- Lý do: MoMo có thể gắn thêm tham số của riêng nó vào URL quay về, trong đó có `orderId` phía MoMo (khác mã đơn nội bộ, xem ghi chú ở S-18), nên không được dùng nhầm. Nếu S-18 đã dựng route dạng `?orderId=...` thì chuyển sang dạng trên.
-
-**3. Các trạng thái hiển thị (frontend)**
-
-| Máy chủ báo | Trang hiển thị |
-|---|---|
-| Chưa có phản hồi đầu tiên | "Đang xác nhận thanh toán…" (trung tính, **không** hiện thành công hay thất bại) |
-| Đơn `PAID` | "Đã thanh toán" kèm liên kết tới vé của đơn. Nếu dự án chưa có trang vé thì liên kết tới trang chi tiết đơn (S-17) và nêu rõ trong báo cáo cuối |
-| Đơn `PENDING`, `latestPayment` là `INITIATED` | "Đang xác nhận thanh toán" và tự hỏi lại máy chủ mỗi **2 giây** |
-| Đơn `PENDING`, `latestPayment` là `FAILED` | "Thanh toán không thành công" kèm liên kết về trang đơn để thanh toán lại (nút và logic thử lại do S-24 làm) |
-| Đơn `EXPIRED` | "Đơn đã hết hạn" |
-| Đơn `NEEDS_REVIEW` | "Đơn đang được kiểm tra" kèm hướng dẫn liên hệ hỗ trợ. Không nói là đã trả hay thất bại |
-
-Quy tắc hỏi lại (polling):
-- Mỗi lần chờ phản hồi xong mới hẹn lần kế (ví dụ chuỗi `setTimeout`), **không để các yêu cầu chồng nhau**. Dừng ngay khi gặp trạng thái cuối (`PAID`, `FAILED`, `EXPIRED`, `NEEDS_REVIEW`) hoặc khi rời trang (huỷ timer khi component bị gỡ).
-- Tổng thời gian chờ tối đa **60 giây** tính từ lúc trang mở, đo bằng đồng hồ thực chứ không đếm số lần hỏi. Con số này thay cho "30 giây" ghi trước đó ở S-18.
-- Hết 60 giây mà vẫn `PENDING` với `INITIATED`: **không kết luận thất bại**. Hiện "Chưa nhận được xác nhận từ cổng thanh toán", hướng dẫn kiểm tra lại trong **lịch sử đơn** của mình sau ít phút, kèm mã đơn để liên hệ hỗ trợ nếu đã bị trừ tiền, và nút "Kiểm tra lại" để hỏi thêm một đợt. Nếu dự án chưa có trang lịch sử đơn thì liên kết tới trang chi tiết đơn (S-17), **không tự xây trang mới** trong story này và ghi rõ trong báo cáo cuối.
-- Lỗi mạng khi hỏi lại: thử tiếp ở lần kế, không chuyển sang thất bại. Nếu lỗi kéo dài hết 60 giây thì rơi vào nhánh "hết thời gian chờ" ở trên.
-
-**4. Không tin tham số trên URL**
-- Trang kết quả **không đọc** các tham số do cổng gắn thêm (ví dụ `resultCode`, `message`, `signature`, `transId`…) để quyết định trạng thái hay nội dung hiển thị. Trạng thái chỉ đến từ API ở mục 1.
-- Nếu mã đơn trong URL bị sửa sang đơn của người khác: API từ chối theo S-17, trang hiển thị lỗi chung "không tìm thấy đơn", không lộ thông tin.
-
-**5. Cập nhật cổng giả lập (S-19) để test được các tình huống trên**
-- Khi redirect về `returnUrl`, `MockPaymentGateway` cũng gắn thêm các tham số kiểu MoMo (`resultCode`, `orderId` phía MoMo, `transId`, `message`…) để tái hiện tình huống tham số bị sửa.
-- Thêm biến dev `MOCK_WEBHOOK_DELAY_MS` (mặc định `0`; số dương = trì hoãn gửi webhook; `-1` = không bao giờ gửi). Khi có độ trễ, người dùng được redirect về ngay còn webhook được gửi sau độ trễ đó. Biến này chỉ có tác dụng khi `PAYMENT_GATEWAY=mock`; thêm vào `.env.example`.
-
-### Tiêu chí chấp nhận (cần test)
-- [ ] Quay về trước khi webhook tới (đặt độ trễ webhook): trang hiện "đang xác nhận thanh toán" và tự hỏi lại máy chủ mỗi 2 giây (dùng fake timers để kiểm tra đúng khoảng cách và không có yêu cầu chồng nhau).
-- [ ] Webhook thành công tới sau đó: lần hỏi kế tiếp chuyển sang "đã thanh toán" kèm liên kết tới vé và việc hỏi lại dừng.
-- [ ] Sau 60 giây vẫn chưa có xác nhận (webhook không bao giờ tới): hiện hướng dẫn kiểm tra lại trong lịch sử đơn, **không** hiện thất bại, ngừng hỏi lại tự động.
-- [ ] Tham số trên đường dẫn quay về bị sửa thành "thành công" (ví dụ `resultCode=0`) trong khi máy chủ vẫn báo `PENDING`: trang vẫn hiện "đang xác nhận". Ngược lại, tham số báo lỗi mà máy chủ báo `PAID`: trang hiện "đã thanh toán".
-- [ ] Trước phản hồi đầu tiên của máy chủ, trang không hiện "thành công" hay "thất bại".
-- [ ] API trạng thái chỉ cho chủ đơn, không có tác dụng phụ, có `Cache-Control: no-store`.
-- [ ] Mã nguồn trang kết quả không đọc các tham số do cổng gắn vào URL để quyết định trạng thái (có test hoặc kiểm tra tĩnh).
-
-### Ngoài phạm vi
-Nút và logic thanh toán lại (S-24), huỷ đơn quá hạn và nhả ghế (S-23), xây trang lịch sử đơn hoặc trang vé mới.
-
----
-
-## 8. S-23: Đơn hàng quá hạn thanh toán thì nhả ghế
-
-- **Branch:** `S-23-don-hang-qua-han-thanh-toan-thi-nha-ghe`
-- **Phụ thuộc:** S-17, S-18, S-20.
-
-### Mục tiêu
-Ghế của đơn bị bỏ dở được trả lại để người đến sau mua được, và không bao giờ làm mất ghế của đơn đã trả tiền.
-
-### Việc cần làm
-
-**Kiểm tra riêng cho story này:** xem chức năng chọn ghế hiện có đã tự nhả ghế khi hết thời hạn giữ chưa (TTL ở Redis, trường `heldUntil`, job dọn dẹp…). Nếu có, không viết trùng: job mới phải **phối hợp** với cơ chế đó và vẫn chuyển đúng đơn sang `EXPIRED`. Ghế có thể đã được nhả trước, nên bước nhả ghế của job phải chạy được mà không lỗi khi không còn gì để nhả. `expiresAt` của đơn và thời hạn giữ chỗ phải là cùng một giá trị (xem S-17).
-
-**1. Hàm dùng chung `expireOrder(orderId)`**
-Một hàm duy nhất, dùng cho cả job và luồng webhook trả trễ (mục 3), thực hiện trong **một transaction**:
-1. Chuyển đơn `PENDING` → `EXPIRED` bằng cập nhật nguyên tử có điều kiện: `WHERE id=? AND status='PENDING' AND expiresAt <= <thời điểm hiện tại>`. Dùng **thời gian của DB** (ví dụ `NOW()`) hoặc một nguồn thời gian duy nhất cho mọi so sánh hạn, không trộn đồng hồ của nhiều máy.
-2. Nếu không dòng nào bị ảnh hưởng (đơn đã đổi trạng thái hoặc chưa tới hạn): dừng, không làm gì thêm, trả kết quả `skipped`.
-3. Nếu thành công: ghế thuộc đơn này `HELD` → `AVAILABLE` (chỉ những ghế đang được giữ **bởi chính đơn/user này**; không đụng ghế `SOLD`, không đụng ghế đã được người khác giữ lại) và xoá bản ghi giữ chỗ tương ứng.
-4. Lỗi ở bất kỳ bước nào thì rollback toàn bộ, không để đơn `EXPIRED` mà ghế còn bị giữ hoặc ngược lại.
-
-Ghi log ứng dụng (mã đơn, số ghế đã nhả). Nếu sơ đồ ghế đang có cập nhật thời gian thực (websocket/SSE) thì phát sự kiện ghế trống qua cơ chế đó; nếu không có thì không cần làm thêm.
-
-**2. Job định kỳ**
-- Dùng cơ chế lập lịch đã có của dự án (cron, scheduler…); nếu chưa có, dùng thư viện lập lịch phổ biến của stack hiện tại. Chu kỳ cấu hình qua `ORDER_EXPIRY_JOB_INTERVAL_SECONDS` (mặc định 60), thêm vào `.env.example`.
-- Mỗi lần chạy: lấy tối đa N đơn (ví dụ 100, cấu hình được) có `status = PENDING` và `expiresAt` đã qua, gọi `expireOrder` cho **từng đơn trong transaction riêng** (một đơn lỗi không chặn các đơn còn lại). Đơn còn lại sẽ được xử lý ở lần chạy sau.
-- Chỉ chọn đơn `PENDING`. Đơn `PAID`, `EXPIRED` và `NEEDS_REVIEW` (ví dụ lệch tiền ở S-18, ghế được giữ để kế toán xử lý) **không bị job đụng tới**.
-- Chạy lặp lại được và an toàn khi có nhiều instance cùng chạy nhờ điều kiện trạng thái trong `expireOrder`, không cần khoá phân tán.
-- Cuối mỗi lần chạy ghi log: số đơn đã hết hạn, số bị bỏ qua, số lỗi (không log dữ liệu nhạy cảm). Lỗi của job phải được bắt và log, không làm sập ứng dụng.
-
-**3. Điều chỉnh code S-18/S-20 để không có "trạng thái lửng" khi webhook và job va chạm**
-Webhook thành công và job có thể cùng nhắm tới một đơn đúng lúc hết hạn. Chỉ một bên được thắng:
-- **Webhook chuyển đơn sang `PAID`** (S-18/S-20): bổ sung điều kiện hạn vào cập nhật nguyên tử: `WHERE id=? AND status='PENDING' AND expiresAt > <thời điểm hiện tại>` (cùng nguồn thời gian với `expireOrder`). Hai điều kiện loại trừ nhau theo `expiresAt` và cùng đòi `status='PENDING'`, nên tối đa một cập nhật thành công.
-- Nếu cập nhật `PAID` không ảnh hưởng dòng nào, đọc lại đơn: đã `PAID` thì là bản trùng (xử lý như S-20); `EXPIRED`, hoặc `PENDING` nhưng đã quá hạn, thì đi vào **đường thanh toán trễ**.
-- **Đường thanh toán trễ** (cập nhật phần "đơn đã hết hạn" của S-20): nếu đơn còn `PENDING` mà đã quá hạn (job chưa chạy tới), gọi `expireOrder` trước để nhả ghế. Sau đó giữ nguyên hành vi của S-20: `Payment` → `LATE`, đơn → `NEEDS_REVIEW` kèm lý do "thanh toán sau khi hết hạn, cần hoàn tiền", báo kế toán, trả mã thành công. Nếu job đã thắng trước (đơn đã `EXPIRED`, ghế đã nhả) thì chỉ làm phần đánh dấu. Hai đường cho cùng một trạng thái cuối.
-- Đơn `NEEDS_REVIEW` do thanh toán trễ có ghế **đã được nhả**, khác với `NEEDS_REVIEW` do lệch tiền ở S-18 (ghế vẫn giữ). Phân biệt bằng trạng thái `Payment` của đơn (`LATE` hay `AMOUNT_MISMATCH`).
-- Chỉ có hai trạng thái cuối hợp lệ: (a) đơn `PAID`, ghế `SOLD`, không còn giữ chỗ; (b) đơn bị đánh dấu cần hoàn tiền (`NEEDS_REVIEW` cùng `Payment` `LATE`), ghế đã nhả, không còn giữ chỗ gắn với đơn này.
-
-**4. Giao diện**
-Không cần giao diện mới. Trang đơn (S-17) đã hiển thị đơn hết hạn và trang kết quả (S-22) đã có trạng thái `EXPIRED`.
-
-### Tiêu chí chấp nhận (cần test)
-- [ ] Đơn `PENDING` quá hạn, job chạy: đơn → `EXPIRED`, ghế → `AVAILABLE`, giữ chỗ bị xoá, trong cùng một transaction (test rollback: giả lập lỗi ở bước nhả ghế thì đơn vẫn `PENDING`).
-- [ ] Đơn `PENDING` chưa tới hạn: job không đụng tới.
-- [ ] Đơn đã `PAID`, job chạy nhiều lần: đơn và ghế (`SOLD`) giữ nguyên.
-- [ ] Job chạy liên tiếp 3 lần trên cùng dữ liệu: kết quả sau lần 2 và 3 giống lần 1, không lỗi.
-- [ ] Đơn `NEEDS_REVIEW` do lệch tiền: job không đổi trạng thái và không nhả ghế.
-- [ ] Ghế đã được user khác giữ lại sau khi đơn cũ hết hạn: chạy lại `expireOrder` không nhả nhầm ghế đó.
-- [ ] Webhook thành công và job cùng tác động một đơn đúng lúc hết hạn (test đồng thời, lặp nhiều lần, cả hai thứ tự webhook trước và job trước): luôn kết thúc ở đúng một trong hai trạng thái cuối ở mục 3. Không có trạng thái lửng (ví dụ đơn `PAID` mà ghế `AVAILABLE`, đơn `EXPIRED` mà ghế `SOLD`, hoặc đơn không còn `PENDING` mà ghế vẫn `HELD` của đơn đó), không lỗi 500.
-- [ ] Webhook thành công tới khi đơn `PENDING` nhưng đã quá hạn và job chưa chạy: ghế được nhả, đơn `NEEDS_REVIEW`, `Payment` `LATE`, kế toán được báo.
-
-### Ngoài phạm vi
-Hoàn tiền tự động (chỉ đánh dấu và báo kế toán), thông báo nhắc sắp hết hạn, xử lý thất bại thanh toán (S-24).
-
----
-
-## 9. S-24: Thanh toán thất bại thì đơn vẫn chờ và ghế còn giữ tới hết hạn
-
-- **Branch:** `S-24-thanh-toan-that-bai-thi-don-van-cho-va-ghe-con-giu-toi-het-han`
-- **Phụ thuộc:** S-18, S-22 (trường `latestPayment`), S-23 (xử lý đơn hết hạn).
-
-### Mục tiêu
-Người mua nhập sai hoặc huỷ một lần vẫn thanh toán lại được trên cùng một đơn, không mất ghế trước hạn.
-
-Phía server đã có hành vi cơ bản từ S-18 (`Payment` → `FAILED`, đơn vẫn `PENDING`). Story này **rà lại và hoàn thiện**: không gia hạn/rút ngắn hạn, nút thanh toán lại, dùng lại cùng mã đơn, từ chối khi quá hạn và ghi nhật ký đơn.
-
-### Việc cần làm
-
-**1. Khi cổng báo thất bại (rà lại luồng webhook của S-18)**
-- Webhook `FAILED`: `Payment` → `FAILED`; đơn **vẫn `PENDING`**; ghế **vẫn `HELD`**; giữ chỗ không bị xoá; **`expiresAt` không đổi** (không gia hạn, không rút ngắn). Nhánh `FAILED` không được gọi `expireOrder` hay nhả ghế; việc nhả ghế chỉ do S-23 làm khi hết hạn.
-- Webhook `FAILED` gửi trùng: xử lý idempotent như S-20 (cùng mã giao dịch thì bỏ qua).
-- Kết quả `FAILED` tới cho đơn đã quá hạn/`EXPIRED`, hoặc cho đơn đã `PAID` (do một lần thử khác thành công trước): chỉ ghi `Payment` `FAILED` cho lần thử đó, không đổi đơn hay ghế.
-
-**2. Nút thanh toán lại (frontend, mở rộng trang đơn của S-17)**
-- Dùng `latestPayment` từ API chi tiết đơn (S-22). Khi đơn `PENDING`, còn hạn và `latestPayment.status` là `FAILED`: hiện thông báo "Thanh toán lần trước không thành công, ghế của bạn vẫn được giữ" cùng đồng hồ đếm ngược đã có, và nút **"Thanh toán lại"** (thay cho nhãn "Thanh toán").
-- Đơn chưa từng thử thanh toán: nhãn vẫn là "Thanh toán". Đơn hết hạn: ẩn nút (đã có ở S-17).
-- Khi `latestPayment.status` là `INITIATED` (có giao dịch đang chờ kết quả): vẫn cho bấm nhưng hiện cảnh báo "Bạn có một giao dịch đang chờ xác nhận, thanh toán lại có thể bị trừ tiền hai lần".
-- Giữ chặn bấm đúp đã có ở S-18.
-
-**3. Thanh toán lại ở backend (dùng lại API của S-18)**
-- **Không tạo API hay đơn mới.** Dùng lại `POST /api/orders/:id/pay` của S-18 với **cùng mã đơn nội bộ**. Mỗi lần gọi tạo thêm một bản ghi `Payment` mới (`INITIATED`) với `attemptNo` tăng dần (1, 2, 3…) và ràng buộc unique `(orderId, attemptNo)`. Khoá dòng đơn (hoặc thử lại khi vi phạm unique) để hai yêu cầu đồng thời không tạo hai lần thử trùng số.
-- Phía MoMo dùng `orderId`/`requestId` **mới cho mỗi lần thử** (xem ghi chú ở S-18) và ánh xạ về cùng một mã đơn nội bộ. "Cùng mã đơn" trong yêu cầu nghĩa là mã đơn nội bộ.
-- Vẫn kiểm tra như S-18: đúng chủ đơn, đơn `PENDING`, chưa hết hạn, số tiền tính lại từ DB.
-- Đơn đã hết hạn (kể cả `PENDING` nhưng quá `expiresAt` mà job chưa chạy), hoặc đang `EXPIRED`/`PAID`/`NEEDS_REVIEW`: **từ chối** với mã lỗi ổn định theo convention của dự án (ví dụ `ORDER_EXPIRED` khi hết hạn), **không** tạo `Payment` mới, **không** gọi cổng. Yêu cầu bị từ chối này không tự huỷ đơn hay nhả ghế, việc đó để job S-23 xử lý như thường. Frontend hiện "Đơn đã hết hạn".
-
-**4. Nhật ký đơn (`OrderLog`)**
-- Tạo bảng/collection `OrderLog` nếu dự án chưa có bảng nhật ký phù hợp: `id`, `orderId`, `type`, `attemptNo` (có thể trống), `detail` (JSON nhỏ, **không** chứa secret, chữ ký hay dữ liệu thẻ), `createdAt`. Đánh index theo `orderId`.
-- Ghi các sự kiện: `PAYMENT_ATTEMPT` mỗi lần khởi tạo thanh toán (kèm `attemptNo`; từ lần 2 trở đi chính là "thử lại" và `detail` ghi mã/lý do thất bại ngắn của lần trước nếu có), `PAYMENT_FAILED` khi nhận kết quả thất bại, `RETRY_REJECTED_EXPIRED` khi từ chối thử lại vì hết hạn.
-- Ghi nhật ký **trong cùng transaction** với việc tạo `Payment` để hai bên không lệch nhau.
-- Số lần thử lại = số lần `PAYMENT_ATTEMPT` trừ 1. Thêm trường `paymentAttempts` vào API chi tiết đơn. Không cần giao diện xem nhật ký.
-
-**5. Trường hợp biên: hai lần thử cùng thành công**
-Vì được thử lại, user có thể trả thành công ở hai lần thử (mở hai tab, hoặc lần thử cũ vẫn còn hiệu lực ở cổng). Khi webhook thành công thứ hai (mã giao dịch **khác**) tới cho đơn đã `PAID`: không ghi nhận lần hai, không đổi đơn hay ghế. Ghi `Payment` ở trạng thái `LATE` kèm lý do "trả trùng, cần hoàn tiền", báo kế toán qua `AccountantNotifier` (S-18), trả mã thành công. Trường hợp cùng mã giao dịch gửi lại vẫn do S-20 xử lý như bản trùng.
-
-### Tiêu chí chấp nhận (cần test)
-- [ ] Cổng trả thất bại: đơn vẫn `PENDING`, ghế vẫn `HELD`, `expiresAt` không đổi, trang đơn hiện nút "Thanh toán lại".
-- [ ] Bấm thanh toán lại: dùng cùng mã đơn nội bộ, không có `Order` mới (đếm số `Order` trước và sau), có `Payment` mới với `attemptNo` = 2, phía cổng nhận mã giao dịch mới.
-- [ ] Hết hạn rồi bấm thanh toán lại: bị từ chối, không có `Payment` mới, không gọi cổng. Sau đó job S-23 chạy thì đơn → `EXPIRED` và ghế được nhả như thường.
-- [ ] Sau 3 lần thử: có đúng 3 bản ghi `PAYMENT_ATTEMPT` với `attemptNo` 1, 2, 3 trong nhật ký đơn, và nhật ký không chứa secret hay chữ ký.
-- [ ] Job S-23 chạy khi đơn còn hạn và vừa thất bại: không đụng tới đơn và ghế.
-- [ ] Hai yêu cầu thanh toán lại đồng thời: không tạo hai lần thử trùng `attemptNo`.
-- [ ] Webhook `FAILED` gửi trùng, hoặc `FAILED` tới cho đơn đã `PAID` hoặc đã hết hạn: không đổi trạng thái đơn và ghế.
-- [ ] Hai lần thử cùng thành công (mã giao dịch khác nhau): chỉ lần đầu được ghi nhận, lần hai `LATE` kèm báo kế toán, đơn vẫn `PAID`.
-
-### Ngoài phạm vi
-Giới hạn số lần thử lại, giao diện xem nhật ký đơn, hoàn tiền tự động.
-
----
-
-## 10. Mẫu báo cáo sau mỗi story
+## 7. Mẫu báo cáo sau mỗi story
 
 Khi xong một story, agent trả lời theo mẫu:
 

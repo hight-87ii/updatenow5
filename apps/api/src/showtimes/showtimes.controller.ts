@@ -49,6 +49,13 @@ export class ShowtimesController {
   ) {
     return this.service.status(id, req.user.id, body);
   }
+  @Roles('ORGANIZER') @Post(':id/clone') clone(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() body: unknown,
+  ) {
+    return this.service.clone(id, req.user.id, body);
+  }
   @Public() @Get(':id/seats') seats(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.publicSeats(id);
   }

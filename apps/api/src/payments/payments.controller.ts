@@ -37,7 +37,6 @@ export class PaymentsController {
     @Ip() ip: string,
   ) {
     const clientIp = (req.headers['x-forwarded-for'] as string) || ip;
-    const rawPayload = (req as any).rawBody ?? body;
-    return this.paymentsService.handleWebhook(rawPayload, req.headers, clientIp);
+    return this.paymentsService.handleWebhook(body, req.headers, clientIp);
   }
 }

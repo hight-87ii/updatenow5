@@ -13,8 +13,6 @@ import {
 } from './mock-gateway.controller.js';
 import { MockGatewayService } from './mock-gateway.service.js';
 
-import { OrdersModule } from '../orders/orders.module.js';
-
 export const paymentGatewayProvider: Provider = {
   provide: PAYMENT_GATEWAY,
   useFactory: (
@@ -34,7 +32,7 @@ export const paymentGatewayProvider: Provider = {
 };
 
 @Module({
-  imports: [PrismaModule, ConfigModule, OrdersModule],
+  imports: [PrismaModule, ConfigModule],
   controllers: [PaymentsController, MockGatewayController],
   providers: [
     MomoGateway,

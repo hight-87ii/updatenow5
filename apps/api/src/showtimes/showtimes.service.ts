@@ -155,6 +155,86 @@ export class ShowtimesService {
       return { saved: parsed.length };
     });
   }
+  async clone(id: string, owner: string, body: unknown) {
+    const raw =
+      body && typeof body === 'object'
+        ? (body as Record<string, unknown>).startTime
+        : undefined;
+    if (typeof raw !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(raw)) {
+      throw new BadRequestException({
+        message: 'Thời gian cần có múi giờ.',
+        errors: { startTime: 'Chọn giờ bắt đầu hợp lệ.' },
+      });
+    }
+    const startTime = new Date(raw);
+    if (Number.isNaN(startTime.getTime()) || startTime <= new Date()) {
+      throw new BadRequestException({
+        message: 'Thời gian bắt đầu phải ở tương lai.',
+        errors: { startTime: 'Chọn giờ trong tương lai.' },
+      });
+    }
+    return this.db.$transaction(
+      async (tx) => {
+        const show = await this.owned(tx, id, owner, true);
+        const sourceSeats = await tx.seat.findMany({
+          where: { showtimeId: id },
+          select: { row: true, seatNumber: true, categoryId: true },
+          orderBy: [{ row: 'asc' }, { seatNumber: 'asc' }],
+        });
+        const duplicates = await tx.showtime.count({
+          where: { eventId: show.eventId, startTime },
+        });
+        // Status defaults to DRAFT, structureLocked to false: the copy always
+        // starts as a draft, never inherits ON_SALE/CLOSED.
+        const created = await tx.showtime.create({
+          data: { eventId: show.eventId, startTime },
+        });
+        const categoryIds = new Map<string, string>();
+        for (const category of show.categories) {
+          const categoryId = randomUUID();
+          categoryIds.set(category.id, categoryId);
+          await tx.seatCategory.create({
+            data: {
+              id: categoryId,
+              showtimeId: created.id,
+              name: category.name,
+              price: category.price,
+            },
+          });
+        }
+        // New seat ids, no holds/orders carried over: every seat starts empty.
+        if (sourceSeats.length) {
+          await tx.seat.createMany({
+            data: sourceSeats.map((s) => ({
+              id: randomUUID(),
+              showtimeId: created.id,
+              categoryId: categoryIds.get(s.categoryId)!,
+              row: s.row,
+              seatNumber: s.seatNumber,
+            })),
+          });
+        }
+        if (show.seatMapId) {
+          await tx.showtime.update({
+            where: { id: created.id },
+            data: { seatMapId: created.id },
+          });
+        }
+        return {
+          id: created.id,
+          startTime: created.startTime,
+          status: created.status,
+          seatCount: sourceSeats.length,
+          categoryCount: show.categories.length,
+          warning:
+            duplicates > 0
+              ? 'Đã có suất diễn cùng giờ; vẫn lưu vì sự kiện có thể diễn ở nhiều phòng.'
+              : null,
+        };
+      },
+      { timeout: 15000 },
+    );
+  }
   async status(id: string, owner: string, body: unknown) {
     const next =
       body && typeof body === 'object'

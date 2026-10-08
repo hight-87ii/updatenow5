@@ -62,9 +62,6 @@ describe('OrdersService & isOrderExpired', () => {
           findUnique: vi.fn(),
           update: vi.fn(),
         },
-        orderLog: {
-          count: vi.fn().mockResolvedValue(0),
-        },
       };
       service = new OrdersService(mockPrisma as unknown as PrismaService);
     });

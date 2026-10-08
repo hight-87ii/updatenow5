@@ -111,45 +111,4 @@ describe("Order Review contracts and countdown (S-17)", () => {
     // Way past expiration: clamped at 0
     expect(remainingSeconds(expiresAt, clock, 900100)).toBe(0);
   });
-
-  it("S-24: decodes order with failed latestPayment and paymentAttempts", () => {
-    const payloadWithFailedPayment = {
-      ...validOrderPayload,
-      paymentAttempts: 2,
-      latestPayment: {
-        id: "pay-1",
-        status: "FAILED",
-        attemptNo: 1,
-        amount: 1500000,
-        gateway: "mock",
-        transactionId: "tx-fail-1",
-        createdAt: "2026-10-07T11:51:00.000Z",
-      },
-    };
-
-    const decoded = decodeOrderDetail(payloadWithFailedPayment);
-    expect(decoded.paymentAttempts).toBe(2);
-    expect(decoded.latestPayment?.status).toBe("FAILED");
-    expect(decoded.latestPayment?.attemptNo).toBe(1);
-  });
-
-  it("S-24: decodes order with initiated latestPayment", () => {
-    const payloadWithInitiatedPayment = {
-      ...validOrderPayload,
-      paymentAttempts: 1,
-      latestPayment: {
-        id: "pay-2",
-        status: "INITIATED",
-        attemptNo: 1,
-        amount: 1500000,
-        gateway: "mock",
-        transactionId: null,
-        createdAt: "2026-10-07T11:51:00.000Z",
-      },
-    };
-
-    const decoded = decodeOrderDetail(payloadWithInitiatedPayment);
-    expect(decoded.paymentAttempts).toBe(1);
-    expect(decoded.latestPayment?.status).toBe("INITIATED");
-  });
 });

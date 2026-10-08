@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Header,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -55,15 +54,5 @@ export class OrdersController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.service.getOrderById(id, req.user.id);
-  }
-
-  @Get(':id/status')
-  @Roles('BUYER')
-  @Header('Cache-Control', 'no-store')
-  getOrderStatus(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Req() req: AuthenticatedRequest,
-  ) {
-    return this.service.getOrderStatus(id, req.user.id);
   }
 }

@@ -105,6 +105,25 @@ const siblings = (v: unknown) =>
       status: sale(s.status),
     };
   });
+export type CloneResult = {
+  id: string;
+  startTime: string;
+  status: SaleStatus;
+  seatCount: number;
+  categoryCount: number;
+  warning: string | null;
+};
+export function decodeCloneResult(v: unknown): CloneResult {
+  const r = object(v);
+  return {
+    id: string(r.id),
+    startTime: time(r.startTime),
+    status: sale(r.status),
+    seatCount: number(r.seatCount),
+    categoryCount: number(r.categoryCount),
+    warning: nullableString(r.warning),
+  };
+}
 export function decodeCatalog(v: unknown): CatalogPage {
   const page = object(v);
   return {
