@@ -119,10 +119,15 @@ export function SeatSelection({ id }: { id: string }) {
       apply(state);
     }
     void load().catch((e) => {
-      if (!controller.signal.aborted)
+      if (!controller.signal.aborted) {
+        if (e instanceof ApiError && e.status === 429 && e.code === "WAITING_ROOM") {
+          router.replace(`/shows/${id}/waiting`);
+          return;
+        }
         setError(
           e instanceof Error ? e.message : "Không tải được sơ đồ. Hãy thử lại.",
         );
+      }
     });
     const reconnect = () => {
       void refresh()
@@ -182,6 +187,7 @@ export function SeatSelection({ id }: { id: string }) {
     setPending(true);
     setError("");
     setConflict([]);
+    let redirected = false;
     try {
       const state = await api(`/showtimes/${id}/holds`, decodeHoldState, {
         method: "POST",
@@ -203,6 +209,14 @@ export function SeatSelection({ id }: { id: string }) {
             : draft,
         );
         setDraft([]);
+      } else if (
+        e instanceof ApiError &&
+        e.status === 429 &&
+        e.code === "WAITING_ROOM"
+      ) {
+        redirected = true;
+        alive.current = false;
+        router.replace(`/shows/${id}/waiting`);
       } else
         setError(
           e instanceof Error ? e.message : "Không giữ được ghế. Hãy thử lại.",
@@ -210,6 +224,7 @@ export function SeatSelection({ id }: { id: string }) {
     } finally {
       busy.current = false;
       setPending(false);
+      if (redirected) return;
       // Reconcile even a lost POST response; only the server can confirm success.
       await refresh()
         .then((state) => {

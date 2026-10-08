@@ -12,6 +12,8 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { hashSessionToken } from '../auth/auth.service.js';
 import type { AuthenticatedRequest } from '../auth/guards/session-auth.guard.js';
 import { HoldsService } from './holds.service.js';
+import { UseGuards } from '@nestjs/common';
+import { WaitingAdmissionGuard } from '../waiting/waiting.guard.js';
 
 @Controller('showtimes/:id/holds')
 @Roles('BUYER')
@@ -19,6 +21,7 @@ export class HoldsController {
   constructor(private readonly service: HoldsService) {}
   @Post()
   @HttpCode(200)
+  @UseGuards(WaitingAdmissionGuard)
   claim(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
