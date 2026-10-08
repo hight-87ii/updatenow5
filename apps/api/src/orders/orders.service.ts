@@ -42,11 +42,20 @@ type OrderView = {
   }[];
 };
 
+export type DiscountCodeInfo = {
+  id: string;
+  code: string;
+  type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+  value: number;
+} | null;
+
 export type OrderDetailResponse = {
   id: string;
   status: OrderStatus;
   rawStatus: OrderStatus;
   totalAmount: number;
+  discountAmount: number;
+  discountCode: DiscountCodeInfo;
   expiresAt: string;
   paymentExpiresAt: string;
   serverTime: string;
@@ -441,6 +450,8 @@ export class OrdersService {
         status: order.status,
         rawStatus: order.status,
         totalAmount: order.totalAmount,
+        discountAmount: 0,
+        discountCode: null,
         expiresAt: expiresIso,
         paymentExpiresAt: expiresIso,
         serverTime: serverTimeIso,
@@ -485,6 +496,7 @@ export class OrdersService {
       include: {
         event: true,
         showtime: true,
+        discountCode: true,
         items: {
           include: {
             seat: {
@@ -561,6 +573,15 @@ export class OrdersService {
       status: resolvedStatus,
       rawStatus: order.status,
       totalAmount: recalculatedTotal,
+      discountAmount: order.discountAmount ?? 0,
+      discountCode: order.discountCode
+        ? {
+            id: order.discountCode.id,
+            code: order.discountCode.code,
+            type: order.discountCode.type,
+            value: order.discountCode.value,
+          }
+        : null,
       expiresAt: expiresIso,
       paymentExpiresAt: expiresIso,
       serverTime: serverTimeIso,
@@ -602,6 +623,8 @@ export class OrdersService {
       order: {
         ...order,
         totalAmount: Number(order.totalAmount),
+        discountAmount: 0,
+        discountCode: null,
         paymentExpiresAt: (order.paymentExpiresAt ?? serverTime).toISOString(),
         items: order.items.map((i) => ({
           ...i,

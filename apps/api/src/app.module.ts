@@ -14,6 +14,7 @@ import { OrdersModule } from './orders/orders.module.js';
 import { PaymentsModule } from './payments/payments.module.js';
 import { MonitoringModule } from './monitoring/monitoring.module.js';
 import { WaitingModule } from './waiting/waiting.module.js';
+import { DiscountsModule } from './discounts/discounts.module.js';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { WaitingModule } from './waiting/waiting.module.js';
     PaymentsModule,
     MonitoringModule,
     WaitingModule,
+    DiscountsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

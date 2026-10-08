@@ -61,11 +61,24 @@ export class PaymentsService {
       );
     }
 
-    // Authoritative calculation strictly from DB prices
+    // Authoritative calculation strictly from DB prices, with discount applied if present
     let authoritativeTotal = 0;
     for (const item of order.items) {
       const price = item.seat?.category?.price ?? item.unitPrice;
       authoritativeTotal += price;
+    }
+
+    // Apply discount if order has one
+    if (order.discountAmount > 0 && order.discountCodeId) {
+      const discountUsage = await this.db.discountUsage.findFirst({
+        where: { orderId: order.id, discountCodeId: order.discountCodeId },
+      });
+      if (discountUsage) {
+        authoritativeTotal -= discountUsage.amount;
+      } else {
+        // Fallback to order.discountAmount if usage record not found
+        authoritativeTotal -= order.discountAmount;
+      }
     }
 
     if (authoritativeTotal <= 0) {
@@ -239,10 +252,22 @@ export class PaymentsService {
       }
     }
 
-    // 4. Calculate authoritative order total from DB
+    // 4. Calculate authoritative order total from DB (with discount)
     let orderTotal = 0;
     for (const item of order.items) {
       orderTotal += item.seat?.category?.price ?? item.unitPrice;
+    }
+
+    // Apply discount if order has one
+    if (order.discountAmount > 0 && order.discountCodeId) {
+      const discountUsage = await this.db.discountUsage.findFirst({
+        where: { orderId: order.id, discountCodeId: order.discountCodeId },
+      });
+      if (discountUsage) {
+        orderTotal -= discountUsage.amount;
+      } else {
+        orderTotal -= order.discountAmount;
+      }
     }
 
     // 5. Amount mismatch check
