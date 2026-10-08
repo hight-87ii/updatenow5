@@ -100,6 +100,28 @@ E2E gọi API với PostgreSQL và Redis local thật. `prisma migrate status` p
 
 CI đầy đủ và chặn merge thuộc T-02. Docker image ứng dụng, staging và rollback khi triển khai thuộc T-03.
 
+## S-55 — Sao lưu hằng ngày và khôi phục (tóm tắt, chi tiết ở docs/S55_RUNBOOK.md)
+
+Job đêm `.github/workflows/s55-backup.yml` chạy 00:00 ICT, `pg_dump --format=custom` + `.sha256` + `manifest.json`, giữ 14 bản mới nhất, bản ngoài máy chủ là GitHub Artifact (retention 14 ngày). `[CẦN CHỐT]` storage dài hạn + mã hoá trước Sprint 8.
+
+```powershell
+$taskSecure = Read-Host 'DATABASE_URL (không gửi trong chat)' -AsSecureString
+$env:PGDATABASE = [System.Net.NetworkCredential]::new('', $taskSecure).Password
+node scripts/s55-backup.mjs --keep 14
+Remove-Item Env:PGDATABASE
+```
+
+Khôi phục drill lên database tạm **mới/rỗng** (không restore chồng DB có dữ liệu, không `--clean/--drop/reset`):
+
+```powershell
+$taskSecure = Read-Host 'S55_RESTORE_URL temp DB (không gửi trong chat)' -AsSecureString
+$env:S55_RESTORE_URL = [System.Net.NetworkCredential]::new('', $taskSecure).Password
+node scripts/s55-restore.mjs --file .git/s55-backups/s55-<stamp>.dump --yes
+Remove-Item Env:S55_RESTORE_URL
+```
+
+Sau restore: boot API trỏ temp DB, kiểm `/health` 200 + catalog buyer. Dump chứa password hash/session — giữ private, không commit, không attach PR/chat.
+
 ## Sprint 2 — triển khai và đo local 04/10/2026
 
 Root ứng dụng vẫn `thudemo/`. Hướng dẫn chạy/seed/demo an toàn: [SPRINT2_HANDOFF](docs/SPRINT2_HANDOFF.md). [AC và bằng chứng](docs/SPRINT2_LOCAL_EVIDENCE.md), [K01 spike](docs/K01_EVIDENCE.md).

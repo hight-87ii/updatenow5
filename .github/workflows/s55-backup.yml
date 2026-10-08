@@ -1,0 +1,46 @@
+name: S-55 / nightly-backup
+
+# Nightly off-app-server backup (S-55). Local dumps stay under .git/s55-backups
+# (never committed); the uploaded Artifact is the copy outside the app server.
+# Scheduled 17:00 UTC = 00:00 ICT. Manual runs via workflow_dispatch.
+on:
+  schedule:
+    - cron: "0 17 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s55-nightly-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.21.0
+      - name: Run pg_dump (needs S55_STAGING_DATABASE_URL secret)
+        env:
+          PGDATABASE: ${{ secrets.S55_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$PGDATABASE" ]; then
+            echo "::warning::S55_STAGING_DATABASE_URL not configured; scheduled run skipped. Configure secret after owner approval."
+            mkdir -p .git/s55-backups
+            echo '{"keep":14,"backups":[],"note":"no secret configured; skipped"}' > .git/s55-backups/manifest.json
+            exit 0
+          fi
+          node scripts/s55-backup.mjs --keep 14
+      - name: Upload backup outside the app server (14-day retention)
+        uses: actions/upload-artifact@v7
+        with:
+          name: s55-nightly-${{ github.run_number }}
+          path: .git/s55-backups/
+          retention-days: 14
+          if-no-files-found: error
