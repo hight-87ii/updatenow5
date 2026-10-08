@@ -112,6 +112,11 @@ export default function AccountPage() {
                   <Link href="/">Khám phá sự kiện</Link>
                 </Button>
               )}
+              {user.roles.includes("ACCOUNTANT") && (
+                <Button variant="outline" asChild>
+                  <Link href="/account/reconciliation">Đối soát thanh toán</Link>
+                </Button>
+              )}
             </div>
           </section>
         </>
