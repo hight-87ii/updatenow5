@@ -287,7 +287,7 @@ async function benchmark(a, b) {
         const warmup = await batch();
         check(
           warmup.statuses[200] === 100 && warmup.statuses[409] === 100,
-          'benchmark warmup atomic hold invariant 100 successes / 100 conflicts',
+          `benchmark warmup atomic hold invariant 100 successes / 100 conflicts: ${JSON.stringify(warmup.statuses)}`,
         );
         report.benchmarkWarmup.push({
           instrumentation: enabled,
@@ -299,7 +299,7 @@ async function benchmark(a, b) {
         const { rawMs: ms, statuses } = await batch();
         check(
           statuses[200] === 100 && statuses[409] === 100,
-          'benchmark atomic hold invariant 100 successes / 100 conflicts',
+          `benchmark atomic hold invariant 100 successes / 100 conflicts: ${JSON.stringify(statuses)}`,
         );
         report.benchmark.push({
           instrumentation: enabled,
@@ -794,6 +794,7 @@ try {
   report.pass = false;
   report.failure = {
     type: error.name,
+    message: String(error?.message ?? error).slice(0, 500),
     lastWait: report.lastWait,
     lastPassedCheck: report.checks.at(-1),
   };
