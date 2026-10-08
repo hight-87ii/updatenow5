@@ -16,7 +16,9 @@ suất cũ). Khi giữ ghế, `đang giữ + đã mua + xin thêm > giới hạn
 * Hai số đếm gộp trong **một** query; giới hạn theo suất cache trong memory
   mỗi API instance 10 giây (`S42_LIMIT_CACHE_TTL_MS`) để hot path giữ ghế
   không thêm connection lên pool (giữ nguyên gate đồng thời/NFR T-31 và đo
-  overhead S-43). Đổi giới hạn có hiệu lực trong tối đa 10 giây/instance.
+  overhead S-43). Lookup lạnh của burst đồng thời được singleflight thành
+  đúng 1 query; lookup lỗi thì fail-open (bỏ qua kiểm tra, thử lại ở claim
+  sau). Đổi giới hạn có hiệu lực trong tối đa 10 giây/instance.
 
 ## Giới hạn đã biết (S-42b khi lên Next)
 

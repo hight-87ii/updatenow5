@@ -285,6 +285,14 @@ describe('S-42 per-account ticket limit', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  const limitQueryCount = (db: { seatReadQuery: { mock: { calls: unknown[][] } } }) =>
+    db.seatReadQuery.mock.calls.filter((args: unknown[]) => {
+      const first = args[0] as { text?: unknown };
+      return (
+        typeof first.text === 'string' && first.text.includes('maxTicketsPerUser')
+      );
+    }).length;
+
   it('refetches the limit after the cache TTL expires', async () => {
     const { db, holds } = fixture(null, '0', '0');
     (
@@ -293,12 +301,60 @@ describe('S-42 per-account ticket limit', () => {
     const body = { seatIds: [seatA] };
     await holds.claim(showtimeId, userId, 'fixture-session-hash', body);
     await holds.claim(showtimeId, userId, 'fixture-session-hash', body);
-    expect(
-      db.seatReadQuery.mock.calls.filter((args: unknown[]) =>
-        String((args[0] as { text?: unknown }).text ?? '').includes(
-          'maxTicketsPerUser',
-        ),
-      ),
-    ).toHaveLength(2);
+    expect(limitQueryCount(db)).toBe(2);
+  });
+
+  it('singleflights concurrent cold-cache lookups into one query', async () => {
+    const { db, holds } = fixture(4, '0', '0');
+    // One deferred limit row shared by 20 concurrent claims (cold container
+    // hit by a burst must not flood the hold pool with lookups).
+    let release!: (rows: unknown[]) => void;
+    db.seatReadQuery.mockReset();
+    db.seatReadQuery.mockImplementationOnce(
+      () =>
+        new Promise<unknown[]>((resolve) => {
+          release = resolve;
+        }),
+    );
+    db.seatReadQuery.mockImplementation(async (sql: { text: string }) =>
+      sql.text.includes('maxTicketsPerUser')
+        ? [{ maxTicketsPerUser: 4 }]
+        : [{ held: '0', bought: '0' }],
+    );
+    const pending = Array.from({ length: 20 }, (_, i) =>
+      holds.claim(showtimeId, `user-${i}`, 'fixture-session-hash', {
+        seatIds: [seatA],
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    release([{ maxTicketsPerUser: 4 }]);
+    await Promise.all(pending);
+    expect(limitQueryCount(db)).toBe(1);
+    expect(db.commitHoldRoutine.mock.calls).toHaveLength(20);
+  });
+
+  it('fails open when the limit lookup errors so sales never block', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+    const db = {
+      seatReadQuery: vi.fn().mockRejectedValueOnce(new Error('db down')),
+      commitHoldRoutine: vi.fn().mockResolvedValue([
+        {
+          serverTime: new Date(),
+          id: 'hold-id',
+          expiresAt: new Date(Date.now() + 600000),
+          seatIds: [seatA],
+          failure: null,
+          rejectedSeatIds: [],
+        },
+      ]),
+    };
+    const holds = new HoldsService(db as unknown as PrismaService);
+    const state = await holds.claim(showtimeId, userId, 'fixture-session-hash', {
+      seatIds: [seatA],
+    });
+    expect(state.hold?.seatIds).toEqual([seatA]);
+    expect(db.commitHoldRoutine).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
   });
 });

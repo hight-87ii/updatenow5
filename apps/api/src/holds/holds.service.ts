@@ -72,25 +72,46 @@ export class HoldsService {
     string,
     { limit: number | null; at: number }
   >();
+  // Singleflight: a cold container hit by a 200-way burst must issue one
+  // limit lookup, not 200 — otherwise the lookups flood the 10-connection
+  // hold pool and time out real claims (T-31/S-43 concurrency gates).
+  private readonly limitInflight = new Map<string, Promise<number | null>>();
   private limitCacheTtlMs = S42_LIMIT_CACHE_TTL_MS;
   constructor(private readonly db: PrismaService) {}
+
+  private async loadLimit(showtimeId: string): Promise<number | null> {
+    try {
+      const [row] = await this.db.seatReadQuery<
+        { maxTicketsPerUser: number | null }[]
+      >(
+        Prisma.sql`SELECT "maxTicketsPerUser" FROM showtimes WHERE id=${showtimeId}::uuid`,
+      );
+      return row?.maxTicketsPerUser ?? null;
+    } catch {
+      // Fail open like the Redis-backed guards: a broken limit lookup must
+      // never block sales; the claim routine itself fails closed on real DB
+      // outages. Failures are not cached, so the next claim retries.
+      this.logger.warn(JSON.stringify({ event: 'ticket_limit_unavailable' }));
+      return null;
+    }
+  }
 
   private async ticketLimitFor(showtimeId: string): Promise<number | null> {
     const now = Date.now();
     const cached = this.limitCache.get(showtimeId);
     if (cached && now - cached.at < this.limitCacheTtlMs) return cached.limit;
-    const [row] = await this.db.seatReadQuery<
-      { maxTicketsPerUser: number | null }[]
-    >(
-      Prisma.sql`SELECT "maxTicketsPerUser" FROM showtimes WHERE id=${showtimeId}::uuid`,
-    );
-    const limit = row?.maxTicketsPerUser ?? null;
-    this.limitCache.set(showtimeId, { limit, at: now });
-    if (this.limitCache.size > 1000) {
-      for (const [key, value] of this.limitCache)
-        if (now - value.at >= this.limitCacheTtlMs) this.limitCache.delete(key);
+    let inflight = this.limitInflight.get(showtimeId);
+    if (!inflight) {
+      // loadLimit never rejects (fail-open inside), so the cache store below
+      // always runs before waiters resume.
+      inflight = this.loadLimit(showtimeId).then((limit) => {
+        this.limitCache.set(showtimeId, { limit, at: Date.now() });
+        this.limitInflight.delete(showtimeId);
+        return limit;
+      });
+      this.limitInflight.set(showtimeId, inflight);
     }
-    return limit;
+    return inflight;
   }
 
   async claim(
