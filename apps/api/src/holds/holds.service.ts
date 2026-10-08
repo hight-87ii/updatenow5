@@ -46,9 +46,11 @@ export function requestedSeats(body: unknown): string[] {
   return [...ids].sort();
 }
 
+// S-42 limit cache TTL per API instance (organizer changes apply within it).
+export const S42_LIMIT_CACHE_TTL_MS = 10_000;
+
 // S-42: organizer-set per-account limit. null/undefined = unlimited.
-export function parseTicketLimit(body: unknown): number | null {
-  if (!body || typeof body !== 'object' || Array.isArray(body))
+export function parseTicketLimit(body: unknown): number | null {  if (!body || typeof body !== 'object' || Array.isArray(body))
     throw new BadRequestException('Gửi giới hạn dạng { maxTicketsPerUser }.');
   const value = (body as Record<string, unknown>).maxTicketsPerUser;
   if (value === null || value === undefined) return null;
@@ -62,7 +64,34 @@ export function parseTicketLimit(body: unknown): number | null {
 @Injectable()
 export class HoldsService {
   private readonly logger = new Logger(HoldsService.name);
+  // S-42 limit cache: T-31/S-43 prove every extra pooled query on the claim
+  // hot path breaks the concurrency/NFR gates, so unlimited showtimes cost
+  // zero PG after the first lookup. Staleness window per API instance; the
+  // organizer-facing half (ticket-limit endpoint) stays strongly consistent.
+  private readonly limitCache = new Map<
+    string,
+    { limit: number | null; at: number }
+  >();
+  private limitCacheTtlMs = S42_LIMIT_CACHE_TTL_MS;
   constructor(private readonly db: PrismaService) {}
+
+  private async ticketLimitFor(showtimeId: string): Promise<number | null> {
+    const now = Date.now();
+    const cached = this.limitCache.get(showtimeId);
+    if (cached && now - cached.at < this.limitCacheTtlMs) return cached.limit;
+    const [row] = await this.db.seatReadQuery<
+      { maxTicketsPerUser: number | null }[]
+    >(
+      Prisma.sql`SELECT "maxTicketsPerUser" FROM showtimes WHERE id=${showtimeId}::uuid`,
+    );
+    const limit = row?.maxTicketsPerUser ?? null;
+    this.limitCache.set(showtimeId, { limit, at: now });
+    if (this.limitCache.size > 1000) {
+      for (const [key, value] of this.limitCache)
+        if (now - value.at >= this.limitCacheTtlMs) this.limitCache.delete(key);
+    }
+    return limit;
+  }
 
   async claim(
     showtimeId: string,
@@ -291,26 +320,21 @@ export class HoldsService {
     userId: string,
     requested: number,
   ): Promise<void> {
-    const [limitRow] = await this.db.seatReadQuery<
-      { maxTicketsPerUser: number | null }[]
-    >(
-      Prisma.sql`SELECT "maxTicketsPerUser" FROM showtimes WHERE id=${showtimeId}::uuid`,
-    );
-    const limit = limitRow?.maxTicketsPerUser ?? null;
+    const limit = await this.ticketLimitFor(showtimeId);
     if (limit === null) return;
-    const [heldRow] = await this.db.seatReadQuery<{ count: number | string | bigint }[]>(
-      Prisma.sql`SELECT COUNT(DISTINCT h."seatId") AS count FROM seat_holds h
-        JOIN hold_sessions hs ON hs.id = h."holdSessionId"
-        WHERE h."showtimeId"=${showtimeId}::uuid AND hs."userId"=${userId}::uuid
-          AND h."expiresAt" > clock_timestamp()`,
-    );
-    const [boughtRow] = await this.db.seatReadQuery<{ count: number | string | bigint }[]>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM order_items oi
-        JOIN orders o ON o.id = oi."orderId"
-        WHERE o."userId"=${userId}::uuid AND o."showtimeId"=${showtimeId}::uuid
-          AND o.status IN ('PAID','NEEDS_REVIEW')`,
-    );
-    const owned = Number(heldRow?.count ?? 0) + Number(boughtRow?.count ?? 0);
+    // One pooled round trip for both counts; only limited showtimes pay it.
+    const [counts] = await this.db.seatReadQuery<
+      { held: number | string | bigint; bought: number | string | bigint }[]
+    >(Prisma.sql`SELECT
+        (SELECT COUNT(DISTINCT h."seatId") FROM seat_holds h
+          JOIN hold_sessions hs ON hs.id = h."holdSessionId"
+          WHERE h."showtimeId"=${showtimeId}::uuid AND hs."userId"=${userId}::uuid
+            AND h."expiresAt" > clock_timestamp()) AS held,
+        (SELECT COUNT(*) FROM order_items oi
+          JOIN orders o ON o.id = oi."orderId"
+          WHERE o."userId"=${userId}::uuid AND o."showtimeId"=${showtimeId}::uuid
+            AND o.status IN ('PAID','NEEDS_REVIEW')) AS bought`);
+    const owned = Number(counts?.held ?? 0) + Number(counts?.bought ?? 0);
     if (owned + requested > limit) {
       this.logger.warn(
         JSON.stringify({

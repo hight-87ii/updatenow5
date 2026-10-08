@@ -188,8 +188,7 @@ describe('S-42 per-account ticket limit', () => {
       seatReadQuery: vi
         .fn()
         .mockResolvedValueOnce([{ maxTicketsPerUser: limit }])
-        .mockResolvedValueOnce([{ count: held }])
-        .mockResolvedValueOnce([{ count: bought }]),
+        .mockResolvedValue([{ held, bought }]),
       commitHoldRoutine: vi.fn().mockResolvedValue([
         {
           serverTime: new Date(),
@@ -277,11 +276,29 @@ describe('S-42 per-account ticket limit', () => {
       ]),
     };
     const holds = new HoldsService(db as unknown as PrismaService);
-    await holds.claim(showtimeId, userId, 'fixture-session-hash', {
-      seatIds: [seatA],
-    });
+    const body = { seatIds: [seatA] };
+    await holds.claim(showtimeId, userId, 'fixture-session-hash', body);
+    await holds.claim(showtimeId, userId, 'fixture-session-hash', body);
+    // Limit lookup runs once per TTL window; counting never runs.
     expect(db.seatReadQuery).toHaveBeenCalledOnce();
-    expect(db.commitHoldRoutine).toHaveBeenCalledOnce();
+    expect(db.commitHoldRoutine).toHaveBeenCalledTimes(2);
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('refetches the limit after the cache TTL expires', async () => {
+    const { db, holds } = fixture(null, '0', '0');
+    (
+      holds as unknown as { limitCacheTtlMs: number }
+    ).limitCacheTtlMs = 0;
+    const body = { seatIds: [seatA] };
+    await holds.claim(showtimeId, userId, 'fixture-session-hash', body);
+    await holds.claim(showtimeId, userId, 'fixture-session-hash', body);
+    expect(
+      db.seatReadQuery.mock.calls.filter((args: unknown[]) =>
+        String((args[0] as { text?: unknown }).text ?? '').includes(
+          'maxTicketsPerUser',
+        ),
+      ),
+    ).toHaveLength(2);
   });
 });
