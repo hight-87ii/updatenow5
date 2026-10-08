@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_FILTER } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { resolve } from 'node:path';
 import { AppController } from './app.controller.js';
@@ -14,6 +15,7 @@ import { OrdersModule } from './orders/orders.module.js';
 import { PaymentsModule } from './payments/payments.module.js';
 import { MonitoringModule } from './monitoring/monitoring.module.js';
 import { WaitingModule } from './waiting/waiting.module.js';
+import { WebhookSecurityFilter } from './payments/webhook-security.filter.js';
 
 @Module({
   imports: [
@@ -34,6 +36,12 @@ import { WaitingModule } from './waiting/waiting.module.js';
     WaitingModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_FILTER,
+      useClass: WebhookSecurityFilter,
+    },
+  ],
 })
 export class AppModule {}

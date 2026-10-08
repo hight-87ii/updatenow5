@@ -194,6 +194,7 @@ model Order {
   totalAmount      Int
   items            OrderItem[]
   payments         Payment[]
+  logs             OrderLog[]
   createdAt        DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
 
@@ -245,12 +246,27 @@ model Payment {
   gateway       String
   gatewayRef    String        @unique
   transactionId String?
+  attemptNo     Int           @default(1)
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
 
+  @@unique([orderId, attemptNo])
   @@unique([gateway, transactionId])
   @@index([orderId])
   @@index([transactionId])
   @@index([status])
   @@map("payments")
+}
+
+model OrderLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  orderId   String   @db.Uuid
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type      String
+  attemptNo Int?
+  detail    Json?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([orderId])
+  @@map("order_logs")
 }

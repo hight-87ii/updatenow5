@@ -85,34 +85,77 @@ export class MockGatewayService {
     webhookPayload.signature = signature;
 
     const url = this.webhookEndpoint;
-    try {
-      this.logger.log(
-        `Sending mock IPN webhook to ${url} for order ${dto.orderId} (resultCode=${resultCode})`,
-      );
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(webhookPayload),
-      });
+    const sendWebhook = async () => {
+      try {
+        this.logger.log(
+          `Sending mock IPN webhook to ${url} for order ${dto.orderId} (resultCode=${resultCode})`,
+        );
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(webhookPayload),
+        });
 
-      if (!res.ok) {
-        const text = await res.text();
-        this.logger.warn(
-          `Mock webhook response status=${res.status}: ${text}`,
+        if (!res.ok) {
+          const text = await res.text();
+          this.logger.warn(
+            `Mock webhook response status=${res.status}: ${text}`,
+          );
+        }
+      } catch (err) {
+        this.logger.error(
+          `Failed to send mock webhook to ${url}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
         );
       }
-    } catch (err) {
-      this.logger.error(
-        `Failed to send mock webhook to ${url}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+    };
+
+    const delayConfig = this.config.get<string>('MOCK_WEBHOOK_DELAY_MS');
+    const delayMs =
+      delayConfig !== undefined && delayConfig !== ''
+        ? parseInt(delayConfig, 10)
+        : 0;
+
+    if (delayMs === -1) {
+      this.logger.log(
+        `MOCK_WEBHOOK_DELAY_MS is -1: Skipping webhook dispatch for order ${dto.orderId}`,
       );
-      throw new BadRequestException('Không thể gửi webhook giả lập tới hệ thống.');
+    } else if (delayMs > 0) {
+      this.logger.log(
+        `MOCK_WEBHOOK_DELAY_MS is ${delayMs}ms: Delayed webhook dispatch for order ${dto.orderId}`,
+      );
+      setTimeout(() => {
+        void sendWebhook();
+      }, delayMs);
+    } else {
+      await sendWebhook();
     }
+
+    // Attach MoMo-like parameters to returnUrl to simulate gateway behavior per S-22
+    const baseOrigin =
+      this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
+    const redirectUrlObj = new URL(dto.returnUrl, baseOrigin);
+    redirectUrlObj.searchParams.set('partnerCode', 'MOCK');
+    redirectUrlObj.searchParams.set('orderId', dto.gatewayRef);
+    redirectUrlObj.searchParams.set('requestId', dto.gatewayRef);
+    redirectUrlObj.searchParams.set('amount', String(dto.amount));
+    redirectUrlObj.searchParams.set('orderInfo', `Thanh toan don hang ${dto.orderId}`);
+    redirectUrlObj.searchParams.set('orderType', 'momo_wallet');
+    redirectUrlObj.searchParams.set('transId', transId);
+    redirectUrlObj.searchParams.set('resultCode', String(resultCode));
+    redirectUrlObj.searchParams.set('message', message);
+    redirectUrlObj.searchParams.set('payType', 'qr');
+    redirectUrlObj.searchParams.set('responseTime', String(Date.now()));
+    redirectUrlObj.searchParams.set('extraData', extraData);
+    redirectUrlObj.searchParams.set('signature', signature);
+    const finalRedirectUrl = dto.returnUrl.startsWith('http')
+      ? redirectUrlObj.toString()
+      : `${redirectUrlObj.pathname}${redirectUrlObj.search}`;
 
     return {
       success: true,
-      redirectUrl: dto.returnUrl,
+      redirectUrl: finalRedirectUrl,
       status: dto.outcome,
     };
   }

@@ -7,7 +7,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { isOrderExpired } from './order-expiration.js';
 
@@ -41,6 +41,30 @@ type OrderView = {
     seat: { row: string; seatNumber: number };
   }[];
 };
+
+export type LatestPaymentInfo = {
+  id: string;
+  status: PaymentStatus;
+  attemptNo: number;
+  amount?: number;
+  gateway?: string;
+  transactionId?: string | null;
+  createdAt?: string;
+};
+
+export type OrderStatusResponse = {
+  id: string;
+  orderId: string;
+  status: OrderStatus;
+  expiresAt: string;
+  paymentExpiresAt: string;
+  serverTime: string;
+  latestPayment: LatestPaymentInfo | null;
+};
+
+export type ExpireOrderResult =
+  | { status: 'expired'; orderId: string; releasedSeatsCount: number }
+  | { status: 'skipped'; orderId: string; reason: string };
 
 export type OrderDetailResponse = {
   id: string;
@@ -89,6 +113,8 @@ export type OrderDetailResponse = {
     }[];
   };
   created: boolean;
+  latestPayment?: LatestPaymentInfo | null;
+  paymentAttempts?: number;
 };
 
 const orderProjection = {
@@ -472,6 +498,8 @@ export class OrdersService {
           items,
         },
         created: true,
+        latestPayment: null,
+        paymentAttempts: 0,
       };
     });
   }
@@ -493,6 +521,9 @@ export class OrdersService {
               },
             },
           },
+        },
+        payments: {
+          orderBy: { createdAt: 'asc' },
         },
       },
     });
@@ -556,6 +587,34 @@ export class OrdersService {
       seat: { row: item.seat.row, seatNumber: item.seat.seatNumber },
     }));
 
+    let latestPayment: LatestPaymentInfo | null = null;
+    if (order.payments && order.payments.length > 0) {
+      const count = order.payments.length;
+      const latest = order.payments[count - 1];
+      latestPayment = {
+        id: latest.id,
+        status: latest.status,
+        attemptNo: latest.attemptNo ?? count,
+        amount: latest.amount,
+        gateway: latest.gateway,
+        transactionId: latest.transactionId,
+        createdAt: latest.createdAt.toISOString(),
+      };
+    }
+
+    const paymentAttemptsCount = this.db.orderLog
+      ? await this.db.orderLog.count({
+          where: {
+            orderId: order.id,
+            type: 'PAYMENT_ATTEMPT',
+          },
+        })
+      : 0;
+    const paymentAttempts =
+      paymentAttemptsCount > 0
+        ? paymentAttemptsCount
+        : (order.payments?.length ?? 0);
+
     return {
       id: order.id,
       status: resolvedStatus,
@@ -588,6 +647,63 @@ export class OrdersService {
         items,
       },
       created: false,
+      latestPayment,
+      paymentAttempts,
+    };
+  }
+
+  async getOrderStatus(
+    orderId: string,
+    userId: string,
+  ): Promise<OrderStatusResponse> {
+    const order = await this.db.order.findUnique({
+      where: { id: orderId },
+      include: {
+        payments: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!order || order.userId !== userId) {
+      throw new NotFoundException('Không tìm thấy đơn hàng.');
+    }
+
+    const serverNow = new Date();
+    const expired = isOrderExpired(order, serverNow);
+    const effectiveExpiresAt =
+      order.paymentExpiresAt ?? order.expiresAt ?? serverNow;
+
+    const resolvedStatus =
+      expired &&
+      (order.status === OrderStatus.PENDING ||
+        order.status === OrderStatus.PENDING_PAYMENT)
+        ? OrderStatus.EXPIRED
+        : order.status;
+
+    let latestPayment: LatestPaymentInfo | null = null;
+    if (order.payments && order.payments.length > 0) {
+      const count = order.payments.length;
+      const latest = order.payments[count - 1];
+      latestPayment = {
+        id: latest.id,
+        status: latest.status,
+        attemptNo: latest.attemptNo ?? count,
+        amount: latest.amount,
+        gateway: latest.gateway,
+        transactionId: latest.transactionId,
+        createdAt: latest.createdAt.toISOString(),
+      };
+    }
+
+    return {
+      id: order.id,
+      orderId: order.id,
+      status: resolvedStatus,
+      expiresAt: effectiveExpiresAt.toISOString(),
+      paymentExpiresAt: effectiveExpiresAt.toISOString(),
+      serverTime: serverNow.toISOString(),
+      latestPayment,
     };
   }
 
@@ -609,5 +725,131 @@ export class OrdersService {
         })),
       },
     };
+  }
+
+  /**
+   * S-23: Expire an overdue order in a single transaction.
+   * Atomic conditional update ensures only PENDING / PENDING_PAYMENT orders that have
+   * passed their expiration time (compared to DB clock) are transitioned to EXPIRED.
+   * If successful, releases held seats for this order/hold session.
+   */
+  async expireOrder(
+    orderId: string,
+    testHooks?: { failOnRelease?: boolean },
+  ): Promise<ExpireOrderResult> {
+    return this.db.$transaction(async (tx) => {
+      // 1. Conditional atomic update: only PENDING / PENDING_PAYMENT, expiresAt <= clock_timestamp()
+      const updated = await tx.$queryRaw<
+        { id: string; userId: string; holdSessionId: string | null }[]
+      >(Prisma.sql`
+        UPDATE orders
+        SET status = 'EXPIRED'::"OrderStatus", "updatedAt" = clock_timestamp()
+        WHERE id = ${orderId}::uuid
+          AND status IN ('PENDING'::"OrderStatus", 'PENDING_PAYMENT'::"OrderStatus")
+          AND COALESCE("paymentExpiresAt", "expiresAt") <= clock_timestamp()
+        RETURNING id, "userId", "holdSessionId"
+      `);
+
+      if (!updated || updated.length === 0) {
+        return {
+          status: 'skipped',
+          orderId,
+          reason: 'Order not found, not in pending state, or not yet expired',
+        };
+      }
+
+      const order = updated[0];
+
+      // Simulated failure hook for testing rollback behavior
+      if (testHooks?.failOnRelease) {
+        throw new Error(
+          'Simulated seat release error: transaction should rollback order status to PENDING',
+        );
+      }
+
+      // 2. Release seat holds for seats of this order that belong to this holdSession/user
+      const releaseCondition = order.holdSessionId
+        ? Prisma.sql`AND "holdSessionId" = ${order.holdSessionId}::uuid`
+        : Prisma.sql`AND "holdSessionId" IN (SELECT id FROM hold_sessions WHERE "userId" = ${order.userId}::uuid)`;
+
+      const releasedSeatsCount = await tx.$executeRaw(Prisma.sql`
+        DELETE FROM seat_holds
+        WHERE "seatId" IN (
+          SELECT oi."seatId"
+          FROM order_items oi
+          JOIN seats s ON s.id = oi."seatId"
+          WHERE oi."orderId" = ${orderId}::uuid
+            AND s."isSold" = false
+        )
+        ${releaseCondition}
+      `);
+
+      this.logger.log(
+        JSON.stringify({
+          event: 'order_expired',
+          orderId,
+          releasedSeatsCount,
+        }),
+      );
+
+      return {
+        status: 'expired',
+        orderId,
+        releasedSeatsCount,
+      };
+    });
+  }
+
+  /**
+   * S-23: Periodic batch job to find and expire up to N overdue pending orders.
+   * Each candidate is processed in its own independent transaction so one failure
+   * does not block the remaining orders.
+   */
+  async processExpiredOrdersBatch(batchSize = 100): Promise<{
+    expiredCount: number;
+    skippedCount: number;
+    errorCount: number;
+  }> {
+    const candidates = await this.db.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM orders
+      WHERE status IN ('PENDING'::"OrderStatus", 'PENDING_PAYMENT'::"OrderStatus")
+        AND COALESCE("paymentExpiresAt", "expiresAt") <= clock_timestamp()
+      ORDER BY COALESCE("paymentExpiresAt", "expiresAt") ASC
+      LIMIT ${batchSize}
+    `);
+
+    let expiredCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    for (const candidate of candidates) {
+      try {
+        const result = await this.expireOrder(candidate.id);
+        if (result.status === 'expired') {
+          expiredCount++;
+        } else {
+          skippedCount++;
+        }
+      } catch (err) {
+        errorCount++;
+        this.logger.error(
+          `Failed to expire order ${candidate.id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'order_expiry_job',
+        candidatesCount: candidates.length,
+        expiredCount,
+        skippedCount,
+        errorCount,
+      }),
+    );
+
+    return { expiredCount, skippedCount, errorCount };
   }
 }

@@ -446,6 +446,40 @@ export function OrderReview({ id, onPay }: OrderReviewProps) {
               </div>
             </div>
 
+            {/* S-24: Failed previous payment notice */}
+            {!expired &&
+              (order.status === "PENDING" ||
+                order.status === "PENDING_PAYMENT") &&
+              order.latestPayment?.status === "FAILED" && (
+                <Alert
+                  className="mt-4 border-amber-300 bg-amber-50 text-amber-900"
+                  data-testid="payment-retry-alert"
+                >
+                  <CircleAlert className="h-4 w-4 text-amber-600" />
+                  <AlertTitle>Thanh toán lần trước không thành công</AlertTitle>
+                  <AlertDescription>
+                    Thanh toán lần trước không thành công, ghế của bạn vẫn được giữ.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+            {/* S-24: Initiated payment warning */}
+            {!expired &&
+              (order.status === "PENDING" ||
+                order.status === "PENDING_PAYMENT") &&
+              order.latestPayment?.status === "INITIATED" && (
+                <Alert
+                  className="mt-4 border-blue-300 bg-blue-50 text-blue-900"
+                  data-testid="payment-pending-alert"
+                >
+                  <CircleAlert className="h-4 w-4 text-blue-600" />
+                  <AlertTitle>Giao dịch đang chờ xác nhận</AlertTitle>
+                  <AlertDescription>
+                    Bạn có một giao dịch đang chờ xác nhận, thanh toán lại có thể bị trừ tiền hai lần.
+                  </AlertDescription>
+                </Alert>
+              )}
+
             {/* Pay Error Alert */}
             {payError && (
               <Alert variant="destructive" className="mt-4" data-testid="pay-error-alert">
@@ -485,6 +519,9 @@ export function OrderReview({ id, onPay }: OrderReviewProps) {
                       <RotateCw className="mr-2 h-4 w-4 animate-spin" />
                       Đang kết nối cổng thanh toán...
                     </>
+                  ) : order.latestPayment?.status === "FAILED" ||
+                    order.latestPayment?.status === "INITIATED" ? (
+                    "Thanh toán lại"
                   ) : (
                     "Thanh toán ngay"
                   )}

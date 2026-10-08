@@ -36,6 +36,16 @@ export type OrderItem = {
   unitPrice: number;
 };
 
+export type LatestPaymentInfo = {
+  id: string;
+  status: "INITIATED" | "SUCCEEDED" | "FAILED" | "AMOUNT_MISMATCH" | "LATE";
+  attemptNo: number;
+  amount?: number;
+  gateway?: string;
+  transactionId?: string | null;
+  createdAt?: string;
+};
+
 export type OrderDetail = {
   id: string;
   status: OrderStatus;
@@ -59,6 +69,8 @@ export type OrderDetail = {
     startTime: string;
   };
   items: OrderItem[];
+  latestPayment?: LatestPaymentInfo | null;
+  paymentAttempts?: number;
 };
 
 const invalid = (field?: string): never => {
@@ -226,6 +238,8 @@ export function decodeOrderDetail(value: unknown): OrderDetail {
       startTime: showtimeObj.startTime,
     },
     items,
+    latestPayment: decodeLatestPayment(o.latestPayment),
+    paymentAttempts: typeof o.paymentAttempts === "number" ? o.paymentAttempts : 0,
   };
 }
 
@@ -252,5 +266,70 @@ export function decodePayResponse(value: unknown): PayResponse {
     redirectUrl: o.redirectUrl,
     gatewayRef: o.gatewayRef,
     paymentId: o.paymentId,
+  };
+}
+
+function decodeLatestPayment(value: unknown): LatestPaymentInfo | null {
+  if (!value) return null;
+  const p = object(value);
+  if (
+    typeof p.id !== "string" ||
+    typeof p.status !== "string" ||
+    typeof p.attemptNo !== "number"
+  ) {
+    return null;
+  }
+  return {
+    id: p.id,
+    status: p.status as LatestPaymentInfo["status"],
+    attemptNo: p.attemptNo,
+    amount: typeof p.amount === "number" ? p.amount : undefined,
+    gateway: typeof p.gateway === "string" ? p.gateway : undefined,
+    transactionId:
+      typeof p.transactionId === "string" ? p.transactionId : null,
+    createdAt: typeof p.createdAt === "string" ? p.createdAt : undefined,
+  };
+}
+
+export type OrderStatusResult = {
+  id: string;
+  orderId: string;
+  status: OrderStatus;
+  expiresAt: string;
+  paymentExpiresAt: string;
+  serverTime: string;
+  latestPayment: LatestPaymentInfo | null;
+};
+
+export function decodeOrderStatus(value: unknown): OrderStatusResult {
+  const o = object(value);
+  const id =
+    typeof o.id === "string"
+      ? o.id
+      : typeof o.orderId === "string"
+        ? o.orderId
+        : invalid("id");
+  const orderId = typeof o.orderId === "string" ? o.orderId : id;
+  const rawStatus = orderStatus(o.status);
+  const status = (rawStatus === "PENDING_PAYMENT" ? "PENDING" : rawStatus) as OrderStatus;
+  const expiresAt =
+    typeof o.expiresAt === "string"
+      ? o.expiresAt
+      : typeof o.paymentExpiresAt === "string"
+        ? o.paymentExpiresAt
+        : invalid("expiresAt");
+  const paymentExpiresAt =
+    typeof o.paymentExpiresAt === "string" ? o.paymentExpiresAt : expiresAt;
+  const serverTime =
+    typeof o.serverTime === "string" ? o.serverTime : invalid("serverTime");
+
+  return {
+    id,
+    orderId,
+    status,
+    expiresAt,
+    paymentExpiresAt,
+    serverTime,
+    latestPayment: decodeLatestPayment(o.latestPayment),
   };
 }
