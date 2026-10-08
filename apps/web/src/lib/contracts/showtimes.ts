@@ -56,6 +56,7 @@ export type OwnedShowtime = {
   categories: Category[];
   _count: { seats: number };
   siblings: { id: string; startTime: string; status: SaleStatus }[];
+  maxTicketsPerUser: number | null;
 };
 export type MapIssue = { index: number | null; field: string; message: string };
 export type SeatDocument = {
@@ -177,6 +178,13 @@ export function decodeOwnedShowtime(v: unknown): OwnedShowtime {
     }),
     _count: { seats: number(object(s._count).seats) },
     siblings: siblings(s.siblings),
+    maxTicketsPerUser:
+      s.maxTicketsPerUser === null || s.maxTicketsPerUser === undefined
+        ? null
+        : Number.isInteger(s.maxTicketsPerUser) &&
+            (s.maxTicketsPerUser as number) >= 1
+          ? (s.maxTicketsPerUser as number)
+          : invalid(),
   };
 }
 export function decodeSeats(v: unknown): Seat[] {

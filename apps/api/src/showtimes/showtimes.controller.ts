@@ -42,6 +42,13 @@ export class ShowtimesController {
   ) {
     return this.service.prices(id, req.user.id, body);
   }
+  @Roles('ORGANIZER') @Patch(':id/ticket-limit') ticketLimit(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() body: unknown,
+  ) {
+    return this.service.ticketLimit(id, req.user.id, body);
+  }
   @Roles('ORGANIZER') @Patch(':id/status') status(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,

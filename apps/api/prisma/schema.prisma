@@ -84,6 +84,8 @@ model Showtime {
   seatMapId       String? // Nullable for now as per S-04
   status          ShowtimeStatus @default(DRAFT)
   structureLocked Boolean        @default(false)
+  // S-42: null = không giới hạn; số nguyên dương = tối đa vé/tài khoản/suất.
+  maxTicketsPerUser Int?
   seats           Seat[]
   categories      SeatCategory[]
   holdSessions    HoldSession[]

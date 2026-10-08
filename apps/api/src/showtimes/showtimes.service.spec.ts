@@ -88,3 +88,83 @@ describe('live seat-map reads without detail overfetch', () => {
     expect(db.seatReadQuery).toHaveBeenCalledTimes(4);
   });
 });
+
+describe('S-42 organizer ticket limit', () => {
+  const id = '00000000-0000-4000-8000-000000000001';
+  function fixture(organizerId: string | null) {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      showtime: {
+        findUnique: vi.fn().mockResolvedValue(
+          organizerId === null
+            ? null
+            : {
+                id,
+                event: { organizerId },
+                categories: [],
+                _count: { seats: 0 },
+              },
+        ),
+        update: vi.fn().mockImplementation(({ data }: { data: unknown }) => ({
+          id,
+          ...(data as Record<string, unknown>),
+        })),
+      },
+    };
+    const db = {
+      $transaction: vi.fn().mockImplementation((cb: (tx: unknown) => unknown) => cb(tx)),
+    };
+    const service = new ShowtimesService(
+      db as unknown as PrismaService,
+      {} as Redis,
+      new ConfigService({
+        DATABASE_URL: 'postgresql://fixture@127.0.0.1:15432/fixture',
+      }),
+    );
+    return { db, tx, service };
+  }
+
+  it('saves a valid limit for the owning organizer', async () => {
+    const { tx, service } = fixture('owner-1');
+    await expect(
+      service.ticketLimit(id, 'owner-1', { maxTicketsPerUser: 4 }),
+    ).resolves.toMatchObject({ maxTicketsPerUser: 4 });
+    expect(tx.showtime.update).toHaveBeenCalledWith({
+      where: { id },
+      data: { maxTicketsPerUser: 4 },
+    });
+  });
+
+  it('clears the limit back to unlimited', async () => {
+    const { tx, service } = fixture('owner-1');
+    await expect(
+      service.ticketLimit(id, 'owner-1', { maxTicketsPerUser: null }),
+    ).resolves.toMatchObject({ maxTicketsPerUser: null });
+    expect(tx.showtime.update).toHaveBeenCalledWith({
+      where: { id },
+      data: { maxTicketsPerUser: null },
+    });
+  });
+
+  it.each([[0], [-2], [2001], [2.5], ['4'], [[4]]])(
+    'rejects invalid limit %j with 400 before touching the database',
+    async (maxTicketsPerUser) => {
+      const { db, service } = fixture('owner-1');
+      await expect(
+        service.ticketLimit(id, 'owner-1', { maxTicketsPerUser }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(db.$transaction).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects other organizers with 403 and missing shows with 404', async () => {
+    const other = fixture('owner-1');
+    await expect(
+      other.service.ticketLimit(id, 'owner-2', { maxTicketsPerUser: 4 }),
+    ).rejects.toMatchObject({ status: 403 });
+    const missing = fixture(null);
+    await expect(
+      missing.service.ticketLimit(id, 'owner-1', { maxTicketsPerUser: 4 }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+});

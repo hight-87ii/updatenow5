@@ -217,6 +217,13 @@ export function SeatSelection({ id }: { id: string }) {
         redirected = true;
         alive.current = false;
         router.replace(`/shows/${id}/waiting`);
+      } else if (
+        e instanceof ApiError &&
+        e.status === 403 &&
+        e.code === "TICKET_LIMIT"
+      ) {
+        // S-42: keep the server message (limit + owned count), stay on the map.
+        setError(e.message);
       } else
         setError(
           e instanceof Error ? e.message : "Không giữ được ghế. Hãy thử lại.",

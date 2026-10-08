@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { SEAT_STATUS_SQL } from './seat-status.sql.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { validateSeatMap, type ImportedSeat } from './seat-map.js';
+import { parseTicketLimit } from '../holds/holds.service.js';
 type Tx = Prisma.TransactionClient;
 type SeatRow = {
   id: string;
@@ -155,8 +156,17 @@ export class ShowtimesService {
       return { saved: parsed.length };
     });
   }
-  async status(id: string, owner: string, body: unknown) {
-    const next =
+  async ticketLimit(id: string, owner: string, body: unknown) {
+    const limit = parseTicketLimit(body);
+    return this.db.$transaction(async (tx) => {
+      await this.owned(tx, id, owner, true);
+      return tx.showtime.update({
+        where: { id },
+        data: { maxTicketsPerUser: limit },
+      });
+    });
+  }
+  async status(id: string, owner: string, body: unknown) {    const next =
       body && typeof body === 'object'
         ? (body as Record<string, unknown>).status
         : undefined;

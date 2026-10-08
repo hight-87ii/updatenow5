@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -45,6 +46,19 @@ export function requestedSeats(body: unknown): string[] {
   return [...ids].sort();
 }
 
+// S-42: organizer-set per-account limit. null/undefined = unlimited.
+export function parseTicketLimit(body: unknown): number | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body))
+    throw new BadRequestException('Gửi giới hạn dạng { maxTicketsPerUser }.');
+  const value = (body as Record<string, unknown>).maxTicketsPerUser;
+  if (value === null || value === undefined) return null;
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 2000)
+    throw new BadRequestException(
+      'Giới hạn từ 1 đến 2000 vé, hoặc để trống (không giới hạn).',
+    );
+  return value as number;
+}
+
 @Injectable()
 export class HoldsService {
   private readonly logger = new Logger(HoldsService.name);
@@ -58,6 +72,7 @@ export class HoldsService {
     client?: HoldConnection,
   ): Promise<HoldState> {
     const seatIds = requestedSeats(body);
+    await this.enforceTicketLimit(showtimeId, userId, seatIds.length);
     const requestId = randomUUID();
     try {
       // v3 rolls rejected writes back inside its subtransaction; expected
@@ -263,6 +278,54 @@ export class HoldsService {
         code: 'HOLD_UNAVAILABLE',
         message: 'Giữ ghế tạm thời không khả dụng. Tải lại sơ đồ rồi thử lại.',
         requestId,
+      });
+    }
+  }
+
+  // S-42: owned = unexpired holds (all sessions of this account; PENDING orders
+  // keep their seat_holds rows, so they are already included) + PAID and
+  // NEEDS_REVIEW order seats. Sequential accumulation is blocked here; a
+  // same-millisecond race needs a proc-level check (S-42b).
+  private async enforceTicketLimit(
+    showtimeId: string,
+    userId: string,
+    requested: number,
+  ): Promise<void> {
+    const [limitRow] = await this.db.seatReadQuery<
+      { maxTicketsPerUser: number | null }[]
+    >(
+      Prisma.sql`SELECT "maxTicketsPerUser" FROM showtimes WHERE id=${showtimeId}::uuid`,
+    );
+    const limit = limitRow?.maxTicketsPerUser ?? null;
+    if (limit === null) return;
+    const [heldRow] = await this.db.seatReadQuery<{ count: number | string | bigint }[]>(
+      Prisma.sql`SELECT COUNT(DISTINCT h."seatId") AS count FROM seat_holds h
+        JOIN hold_sessions hs ON hs.id = h."holdSessionId"
+        WHERE h."showtimeId"=${showtimeId}::uuid AND hs."userId"=${userId}::uuid
+          AND h."expiresAt" > clock_timestamp()`,
+    );
+    const [boughtRow] = await this.db.seatReadQuery<{ count: number | string | bigint }[]>(
+      Prisma.sql`SELECT COUNT(*) AS count FROM order_items oi
+        JOIN orders o ON o.id = oi."orderId"
+        WHERE o."userId"=${userId}::uuid AND o."showtimeId"=${showtimeId}::uuid
+          AND o.status IN ('PAID','NEEDS_REVIEW')`,
+    );
+    const owned = Number(heldRow?.count ?? 0) + Number(boughtRow?.count ?? 0);
+    if (owned + requested > limit) {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'ticket_limit',
+          limit,
+          owned,
+          requested,
+        }),
+      );
+      throw new ForbiddenException({
+        code: 'TICKET_LIMIT',
+        message: `Mỗi tài khoản chỉ được giữ/mua tối đa ${limit} vé cho suất này (bạn đã có ${owned} vé).`,
+        limit,
+        owned,
+        requested,
       });
     }
   }
