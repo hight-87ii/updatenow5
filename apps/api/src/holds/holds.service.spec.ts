@@ -333,7 +333,7 @@ describe('S-42 per-account ticket limit', () => {
     expect(db.commitHoldRoutine.mock.calls).toHaveLength(20);
   });
 
-  it('fails open when the limit lookup errors so sales never block', async () => {
+  it('fails closed when the limit lookup errors so the limit is never bypassed', async () => {
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
     vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
     const db = {
@@ -350,11 +350,12 @@ describe('S-42 per-account ticket limit', () => {
       ]),
     };
     const holds = new HoldsService(db as unknown as PrismaService);
-    const state = await holds.claim(showtimeId, userId, 'fixture-session-hash', {
-      seatIds: [seatA],
-    });
-    expect(state.hold?.seatIds).toEqual([seatA]);
-    expect(db.commitHoldRoutine).toHaveBeenCalledOnce();
+    await expect(
+      holds.claim(showtimeId, userId, 'fixture-session-hash', {
+        seatIds: [seatA],
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(db.commitHoldRoutine).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledOnce();
   });
 });

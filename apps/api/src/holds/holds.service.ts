@@ -88,11 +88,12 @@ export class HoldsService {
       );
       return row?.maxTicketsPerUser ?? null;
     } catch {
-      // Fail open like the Redis-backed guards: a broken limit lookup must
-      // never block sales; the claim routine itself fails closed on real DB
-      // outages. Failures are not cached, so the next claim retries.
+      // A configured limit must never be bypassed because the read pool is
+      // unavailable. Do not cache the failure: a later claim can retry.
       this.logger.warn(JSON.stringify({ event: 'ticket_limit_unavailable' }));
-      return null;
+      throw new ServiceUnavailableException(
+        'Không thể kiểm tra giới hạn vé. Vui lòng thử lại.',
+      );
     }
   }
 
@@ -102,13 +103,11 @@ export class HoldsService {
     if (cached && now - cached.at < this.limitCacheTtlMs) return cached.limit;
     let inflight = this.limitInflight.get(showtimeId);
     if (!inflight) {
-      // loadLimit never rejects (fail-open inside), so the cache store below
-      // always runs before waiters resume.
       inflight = this.loadLimit(showtimeId).then((limit) => {
         this.limitCache.set(showtimeId, { limit, at: Date.now() });
         this.limitInflight.delete(showtimeId);
         return limit;
-      });
+      }).finally(() => this.limitInflight.delete(showtimeId));
       this.limitInflight.set(showtimeId, inflight);
     }
     return inflight;
