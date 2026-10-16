@@ -2,8 +2,9 @@ name: Hold profiling (diagnostic, not acceptance)
 
 on:
   push:
-    branches: [test]
+    branches: [test, S-40-hang-doi-phong-cho-khi-luong-truy-cap-vuot-nguong]
     paths: [.github/workflows/hold-profile.yml]
+  workflow_dispatch:
 
 permissions:
   contents: read

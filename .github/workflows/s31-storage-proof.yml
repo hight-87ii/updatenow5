@@ -2,7 +2,8 @@ name: S31 candidate storage proof
 
 on:
   push:
-    branches: [story/S-31-prevent-ticket-reuse]
+    branches: [story/S-31-prevent-ticket-reuse, S-40-hang-doi-phong-cho-khi-luong-truy-cap-vuot-nguong]
+  workflow_dispatch:
   pull_request:
     paths:
       - apps/api/prisma/verification/s31-admission-candidate.sql
