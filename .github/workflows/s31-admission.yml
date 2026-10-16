@@ -3,7 +3,8 @@ name: S31 signed admission
 on:
   pull_request:
   push:
-    branches: [main, story/S-31-prevent-ticket-reuse]
+    branches: [main, story/S-31-prevent-ticket-reuse, S-40-hang-doi-phong-cho-khi-luong-truy-cap-vuot-nguong]
+  workflow_dispatch:
 
 permissions:
   contents: read

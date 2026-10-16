@@ -3,7 +3,8 @@ name: S-32 order history
 on:
   pull_request:
   push:
-    branches: [main, task/orders-integration-ready]
+    branches: [main, task/orders-integration-ready, S-40-hang-doi-phong-cho-khi-luong-truy-cap-vuot-nguong]
+  workflow_dispatch:
 
 permissions:
   contents: read

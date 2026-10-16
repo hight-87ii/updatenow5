@@ -1,8 +1,9 @@
 name: S43 monitoring
 on:
   push:
-    branches: [main]
+    branches: [main, S-40-hang-doi-phong-cho-khi-luong-truy-cap-vuot-nguong]
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
