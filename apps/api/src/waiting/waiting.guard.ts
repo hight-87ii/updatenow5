@@ -1,13 +1,17 @@
-import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { hashSessionToken } from '../auth/auth.service.js';
 import type { AuthenticatedRequest } from '../auth/guards/session-auth.guard.js';
+import { metrics } from '../monitoring/metrics.js';
 import { WaitingService } from './waiting.service.js';
 
 // Runs after the global session/roles guards: req.user is present.
 // Under threshold it passes everyone (zero change to hold flow); over
 // threshold non-admitted claims get 429 + queue position for the web redirect.
+// S-40c: every rejection is logged with queue counters for S-41 abuse review.
+// Only the user UUID is logged (no email, session token, or seat data).
 @Injectable()
 export class WaitingAdmissionGuard implements CanActivate {
+  private readonly logger = new Logger(WaitingAdmissionGuard.name);
   constructor(private readonly waiting: WaitingService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -18,8 +22,20 @@ export class WaitingAdmissionGuard implements CanActivate {
       req.user.id,
       req.sessionHash ?? hashSessionToken(req.sessionToken),
     );
-    const { admitted, position } = await this.waiting.requireAdmission(showtimeId, member);
+    const { admitted, position, activeCount, queueTotal } =
+      await this.waiting.requireAdmission(showtimeId, member);
     if (admitted) return true;
+    metrics.noteWaitingBlocked();
+    this.logger.warn(
+      JSON.stringify({
+        event: 'waiting_gate_blocked',
+        showtimeId,
+        userId: req.user.id,
+        position,
+        activeCount,
+        queueTotal,
+      }),
+    );
     throw new HttpException(
       {
         code: 'WAITING_ROOM',

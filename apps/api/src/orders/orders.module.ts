@@ -4,8 +4,10 @@ import {
   ShowtimeOrdersController,
 } from './orders.controller.js';
 import { OrdersService } from './orders.service.js';
+import { WaitingModule } from '../waiting/waiting.module.js';
 
 @Module({
+  imports: [WaitingModule],
   controllers: [OrdersController, ShowtimeOrdersController],
   providers: [OrdersService],
   exports: [OrdersService],

@@ -7,10 +7,12 @@ import {
   ParseUUIDPipe,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { hashSessionToken } from '../auth/auth.service.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import type { AuthenticatedRequest } from '../auth/guards/session-auth.guard.js';
+import { WaitingAdmissionGuard } from '../waiting/waiting.guard.js';
 import { OrdersService } from './orders.service.js';
 
 @Controller('showtimes/:id/orders')
@@ -20,6 +22,9 @@ export class ShowtimeOrdersController {
 
   @Post()
   @HttpCode(200)
+  // S-40c: orders are created from admitted holds — block direct order
+  // creation that skips the waiting room the same way POST /holds is blocked.
+  @UseGuards(WaitingAdmissionGuard)
   create(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,

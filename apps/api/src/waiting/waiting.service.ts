@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Redis } from 'ioredis';
 import { Inject } from '@nestjs/common';
+import { metrics } from '../monitoring/metrics.js';
 import { resolveWaitingConfig } from './waiting.config.js';
 
 export type WaitingState =
@@ -56,10 +57,18 @@ export class WaitingService {
   private async pruneAndPromote(
     showtimeId: string,
     now: number,
-  ): Promise<{ activeCount: number; queueTotal: number }> {
+  ): Promise<{ activeCount: number; queueTotal: number; expiredTurns: number }> {
     const q = queueKey(showtimeId);
     const a = activeKey(showtimeId);
-    await this.redis.zremrangebyscore(a, '-inf', now);
+    // S-40b: turns with no activity past their TTL lose their spot here.
+    // The pruned count feeds the expired-turn metric; no worker needed.
+    const expiredTurns = await this.redis.zremrangebyscore(a, '-inf', now);
+    if (expiredTurns > 0) {
+      metrics.noteWaitingExpired(expiredTurns);
+      this.logger.log(
+        JSON.stringify({ event: 'waiting_turn_expired', showtimeId, expiredTurns }),
+      );
+    }
     let activeCount = await this.redis.zcount(a, now + 1, '+inf');
     // Admit FIFO while free slots exist.
     while (activeCount < this.activeLimit) {
@@ -70,7 +79,7 @@ export class WaitingService {
       activeCount += 1;
     }
     const queueTotal = await this.redis.zcard(q);
-    return { activeCount, queueTotal };
+    return { activeCount, queueTotal, expiredTurns };
   }
 
   async join(showtimeId: string, member: string, now = Date.now()): Promise<WaitingState> {
@@ -128,27 +137,43 @@ export class WaitingService {
     }
   }
 
+  // S-40b: a successful hold claim proves activity, so the turn is extended
+  // by one full TTL. Returns false when the turn already expired — the spot
+  // is lost and the buyer must rejoin at the back, never resume mid-queue.
+  async touch(showtimeId: string, member: string, now = Date.now()): Promise<boolean> {
+    try {
+      const admitted = await this.redis.zscore(activeKey(showtimeId), member);
+      if (admitted === null || Number(admitted) <= now) return false;
+      await this.redis.zadd(activeKey(showtimeId), now + this.turnTtlMs, member);
+      return true;
+    } catch {
+      this.logger.warn(JSON.stringify({ event: 'waiting_redis_unavailable', op: 'touch' }));
+      // Fail open: a cache blip must not void a hold the DB just confirmed.
+      return true;
+    }
+  }
+
   // Guard for seat-hold claim: under threshold everyone passes (zero behavior
   // change); over threshold only admitted turns may claim.
   async requireAdmission(
     showtimeId: string,
     member: string,
     now = Date.now(),
-  ): Promise<{ admitted: boolean; position?: number }> {
+  ): Promise<{ admitted: boolean; position?: number; activeCount: number; queueTotal: number }> {
     try {
       const { activeCount, queueTotal } = await this.pruneAndPromote(showtimeId, now);
-      if (queueTotal === 0 && activeCount < this.activeLimit) return { admitted: true };
+      if (queueTotal === 0 && activeCount < this.activeLimit) return { admitted: true, activeCount, queueTotal };
       const admitted = await this.redis.zscore(activeKey(showtimeId), member);
-      if (admitted !== null && Number(admitted) > now) return { admitted: true };
+      if (admitted !== null && Number(admitted) > now) return { admitted: true, activeCount, queueTotal };
       // A buyer who reaches POST /holds before visiting the waiting page must
       // still receive a real FIFO ticket, not a transient `queueTotal + 1`.
       // NX preserves the original arrival time on retries.
       await this.redis.zadd(queueKey(showtimeId), 'NX', now, member);
       const rank = await this.redis.zrank(queueKey(showtimeId), member);
-      return { admitted: false, position: rank === null ? queueTotal + 1 : rank + 1 };
+      return { admitted: false, position: rank === null ? queueTotal + 1 : rank + 1, activeCount, queueTotal };
     } catch {
       this.logger.warn(JSON.stringify({ event: 'waiting_redis_unavailable', op: 'guard' }));
-      return { admitted: true };
+      return { admitted: true, activeCount: 0, queueTotal: 0 };
     }
   }
 

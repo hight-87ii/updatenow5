@@ -83,6 +83,16 @@ export class Metrics {
     help: 'Expired claims deleted by fenced cleanup.',
     registers: [this.registry],
   });
+  readonly waitingExpired = new Counter({
+    name: 'ticket_waiting_turns_expired_total',
+    help: 'S-40 admission turns pruned after their TTL without activity.',
+    registers: [this.registry],
+  });
+  readonly waitingBlocked = new Counter({
+    name: 'ticket_waiting_gate_blocked_total',
+    help: 'S-40 hold/order claims rejected with 429 while waiting for a turn.',
+    registers: [this.registry],
+  });
   constructor() {
     for (const subsystem of ['webhook', 'email_job', 'refund_job'])
       this.producer.set({ subsystem }, 0);
@@ -91,6 +101,13 @@ export class Metrics {
   rejectWebhook(reason: WebhookRejectionReason) {
     if (!reasons.includes(reason)) return;
     this.safe(() => this.webhookRejections.inc({ reason }));
+  }
+  noteWaitingExpired(count: number) {
+    if (!Number.isInteger(count) || count <= 0) return;
+    this.safe(() => this.waitingExpired.inc(count));
+  }
+  noteWaitingBlocked() {
+    this.safe(() => this.waitingBlocked.inc());
   }
   middleware = (req: Request, res: Response, next: NextFunction) => {
     if (process.env.MONITORING_ENABLED !== 'true') return next();

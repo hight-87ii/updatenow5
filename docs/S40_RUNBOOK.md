@@ -1,18 +1,27 @@
-# S-40 — Phòng chờ khi vượt ngưỡng (lát cắt đầu, cần chẻ khi lên Next)
+# S-40 — Phòng chờ khi vượt ngưỡng (full: S-40a + S-40b + S-40c)
 
-> Tier Later, ước lượng thô 8 SP. Lát cắt này triển khai khung FIFO + guard + trang vị trí.
-> `[CẦN CHỐT]` trước khi lên Next: ngưỡng `S40_ACTIVE_LIMIT`, thời gian giữ lượt
-> `S40_TURN_TTL_SEC`, và hàng đợi đặt ở Redis hay tầng trước ứng dụng (WAF/edge).
+> Tier Later, ước lượng thô 8 SP. Đã làm đủ 3 lát trong một branch theo yêu cầu.
+> `[CẦN CHỐT]` trước khi lên Next/merge: ngưỡng `S40_ACTIVE_LIMIT` (mặc định 200),
+> thời gian giữ lượt `S40_TURN_TTL_SEC` (mặc định 300s), và hàng đợi đặt ở Redis
+> hay tầng trước ứng dụng (WAF/edge).
 
-## Đề xuất chẻ 3 story
+## Đã làm
 
-* **S-40a (xong ở đây):** vào hàng chờ + xem vị trí + tới lượt vào chọn ghế.
+* **S-40a:** vào hàng chờ + xem vị trí + tới lượt vào chọn ghế.
   API `POST/GET/DELETE /showtimes/:id/waiting`, guard `WAITING_ROOM 429` trên `POST /holds`,
   trang `/shows/:id/waiting` poll mỗi 2 giây, tới lượt tự chuyển vào `/seats`.
-* **S-40b:** hết lượt mất chỗ + thao tác gia hạn. Hiện lượt hết hạn tự động theo score Redis;
-  còn thiếu: thao tác giữ ghế gia hạn lượt, webhook/metric hết lượt, test quá tải 2000 người xem.
-* **S-40c:** chống lách hàng chờ. Hiện chỉ chặn `POST /holds`; còn thiếu: chặn query seats/orders
-  khi chưa có lượt, fingerprint chống nhiều tab, log lạm dụng cho S-41.
+* **S-40b:** hết lượt mất chỗ + thao tác gia hạn. `POST /holds` thành công gọi
+  `WaitingService.touch` gia hạn lượt thêm một TTL; lượt quá hạn không thao tác bị
+  prune và phải join lại từ cuối (không resume). Mỗi lần prune ghi log
+  `waiting_turn_expired` và tăng counter `ticket_waiting_turns_expired_total`.
+  Test 2000 lượt join FIFO kèm vị trí đúng trong `waiting.service.spec.ts`.
+* **S-40c:** chống lách hàng chờ. Guard `WAITING_ROOM 429` áp cho cả
+  `POST /showtimes/:id/orders` (tạo đơn từ ghế giữ), không chỉ `POST /holds`;
+  các `GET` tra cứu (seats/catalog) giữ mở để không chặn xem công khai.
+  Cùng tab/phiên dùng chung một ticket (rejoin giữ score cũ — test), phiên khác
+  là ticket riêng. Mỗi lần chặn ghi log `waiting_gate_blocked` (showtime, userId,
+  position, activeCount, queueTotal — không email/token) và tăng counter
+  `ticket_waiting_gate_blocked_total` cho S-41 đối chiếu.
 
 ## Thiết kế
 
@@ -22,7 +31,8 @@
   nên đúng cả trên Render Free (không cron/worker).
 * Dưới ngưỡng: mọi request qua thẳng, flow giữ ghế cũ không đổi (fail-open khi Redis lỗi để
   Valkey restart không chặn bán vé — rủi ro anti-abuse đã ghi, chờ S-41).
-* Quá ngưỡng: `POST /holds` trả `429 {code: WAITING_ROOM, position}`, web chuyển vào phòng chờ.
+* Quá ngưỡng: `POST /holds` và `POST /showtimes/:id/orders` trả
+  `429 {code: WAITING_ROOM, position}`, web chuyển vào phòng chờ.
 
 ## Kiểm thử
 

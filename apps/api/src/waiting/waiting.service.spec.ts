@@ -79,7 +79,7 @@ describe('S-40 waiting room', () => {
     const first = await waiting.join(showtime, 'u1:s1', 1000);
     expect(first.state).toBe('admitted');
     const gate = await waiting.requireAdmission(showtime, ' stranger:s9', 1000);
-    expect(gate).toEqual({ admitted: true });
+    expect(gate).toMatchObject({ admitted: true });
   });
 
   it('queues FIFO over the threshold and reports positions', async () => {
@@ -101,7 +101,7 @@ describe('S-40 waiting room', () => {
     await waiting.join(showtime, 'u1:s1', 1000);
     await waiting.join(showtime, 'u2:s2', 1001);
     const gate = await waiting.requireAdmission(showtime, 'u3:s3', 1002);
-    expect(gate).toEqual({ admitted: false, position: 1 });
+    expect(gate).toMatchObject({ admitted: false, position: 1 });
     const status = await waiting.status(showtime, 'u3:s3', 1002);
     expect(status).toMatchObject({ state: 'waiting', position: 1 });
   });
@@ -157,5 +157,50 @@ describe('S-40 waiting room', () => {
   it('config falls back to safe defaults on bad env', () => {
     expect(resolveWaitingConfig({ S40_ACTIVE_LIMIT: 'abc', S40_TURN_TTL_SEC: '-5' } as never))
       .toEqual({ activeLimit: 200, turnTtlSec: 300 });
+  });
+
+  it('S-40b: hold activity extends the turn; an expired turn is lost, not resumed', async () => {
+    const waiting = service();
+    const joined = await waiting.join(showtime, 'u1:s1', 1000);
+    expect(joined.state).toBe('admitted');
+    // Activity at t=2000 pushes expiry from t=301000 to t=302000.
+    expect(await waiting.touch(showtime, 'u1:s1', 2000)).toBe(true);
+    const mid = await waiting.status(showtime, 'u1:s1', 301500);
+    expect(mid.state).toBe('admitted');
+    // Past the extended expiry the spot is gone — no resume mid-queue.
+    expect(await waiting.touch(showtime, 'u1:s1', 302001)).toBe(false);
+    const after = await waiting.status(showtime, 'u1:s1', 302001);
+    expect(after.state).toBe('none');
+  });
+
+  it('S-40c: two sessions of one user are independent tickets; same tab never jumps', async () => {
+    const waiting = service();
+    await waiting.join(showtime, 'u1:phone', 1000);
+    await waiting.join(showtime, 'u1:laptop', 1001);
+    await waiting.join(showtime, 'u2:s9', 1002);
+    // activeLimit=2: phone + laptop admitted, u2 waits at position 1.
+    expect(await waiting.status(showtime, 'u2:s9', 1002))
+      .toMatchObject({ state: 'waiting', position: 1 });
+    // Rejoin from the same tab keeps the earliest ticket (NX score).
+    const again = await waiting.join(showtime, 'u2:s9', 9999);
+    expect(again).toMatchObject({ state: 'waiting', position: 1 });
+  });
+
+  it('S-40b: 2000 viewers join FIFO with correct positions', async () => {
+    const waiting = service();
+    const started = Date.now();
+    for (let i = 0; i < 2000; i += 1) {
+      await waiting.join(showtime, `viewer${i}:s${i}`, 1000 + i);
+    }
+    const elapsed = Date.now() - started;
+    // First 2 admitted (activeLimit=2), rest queued in arrival order.
+    const first = await waiting.status(showtime, 'viewer0:s0', 3000);
+    expect(first.state).toBe('admitted');
+    const last = await waiting.status(showtime, 'viewer1999:s1999', 3000);
+    expect(last).toMatchObject({ state: 'waiting', position: 1998 });
+    const mid = await waiting.status(showtime, 'viewer999:s999', 3000);
+    expect(mid).toMatchObject({ state: 'waiting', position: 998 });
+    // In-memory bound: the lazy prune/promote path must stay O(queue) per call.
+    expect(elapsed).toBeLessThan(30000);
   });
 });
