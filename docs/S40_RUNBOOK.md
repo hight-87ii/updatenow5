@@ -45,5 +45,20 @@ pnpm --filter api test -- waiting        # FIFO, vị trí, hết lượt, fail-
 pnpm --filter web typecheck              # contract + trang waiting
 ```
 
+### Ma trận AC đã tự động hóa
+
+| AC | Bài test |
+| --- | --- |
+| FIFO, vị trí, vào lại không nhảy hàng | `waiting.service.spec.ts` |
+| Lượt hết hạn phải mất chỗ và đôn người kế tiếp | `waiting.service.spec.ts` |
+| Giữ ghế thành công gia hạn lượt; mất lượt không resume | `waiting.service.spec.ts` |
+| Rời hàng và Redis lỗi không làm hỏng luồng bán | `waiting.service.spec.ts` |
+| Guard cho phép admitted, trả `429 WAITING_ROOM + position` cho waiting | `waiting.guard.spec.ts` |
+| Thiếu showtime/buyer không bị gate | `waiting.guard.spec.ts` |
+| Hợp đồng web admitted/waiting/none và position không hợp lệ | `apps/web/src/lib/contracts/waiting.spec.ts` |
+| 2.000 người join FIFO và nhiều phiên không nhảy hàng | `waiting.service.spec.ts` |
+
+Các test trên chạy trong `pnpm test`; `pnpm typecheck` kiểm tra cả API và web.
+
 Kịch bản tay: đặt `S40_ACTIVE_LIMIT=2`, 3 buyer vào `/shows/<id>/waiting` —
 2 người đầu vào thẳng `/seats`, người thứ 3 thấy `Vị trí thứ 1`, hết lượt 300s thì được vào.
