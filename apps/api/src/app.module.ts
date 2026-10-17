@@ -18,6 +18,7 @@ import { CheckInModuleS29 } from './check-in/check-in-s29.module.js';
 import { TicketsModule } from './tickets/tickets.module.js';
 import { WebhookSecurityFilter } from './payments/webhook-security.filter.js';
 import { ScannerModule } from './scanner/scanner.module.js';
+import { ReconciliationModule } from './reconciliation/reconciliation.module.js';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { ScannerModule } from './scanner/scanner.module.js';
     CheckInModuleS29,
     TicketsModule,
     ScannerModule,
+    ReconciliationModule,
   ],
   controllers: [AppController],
   providers: [

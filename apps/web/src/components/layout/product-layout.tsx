@@ -17,6 +17,7 @@ import {
   Admin,
 } from "@/components/ui/material-icon";
 import { SessionActions } from "./session-actions";
+import { AuthenticatedHeader } from "./authenticated-header";
 import { Input } from "@/components/ui/input";
 interface MobileShowHeaderProps {
   readonly href: string;
@@ -114,17 +115,7 @@ export function PublicLayout({
             <MapPin /> <span>TP. Hồ Chí Minh</span>
             <ChevronDown />
           </button>
-          {signedIn ? (
-            <SessionActions />
-          ) : (
-            <Link
-              href="/login"
-              className="header-login-link"
-              aria-current={compact ? "page" : undefined}
-            >
-              Đăng nhập
-            </Link>
-          )}
+          <AuthenticatedHeader compact={compact} />
         </div>
       </header>
       <main className="public-main">{children}</main>

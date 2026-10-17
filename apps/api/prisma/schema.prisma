@@ -28,6 +28,7 @@ model User {
   offlineScanLogs     OfflineScanLog[]
   registrationConsent RegistrationConsent?
   activationTokens    ActivationToken[]
+  reconciliationRuns   ReconciliationRun[]
 
   @@map("users")
 }
@@ -316,6 +317,45 @@ model Payment {
   @@index([transactionId])
   @@index([status])
   @@map("payments")
+}
+
+enum ReconciliationLineType {
+  MATCHED
+  SYSTEM_ONLY
+  PROVIDER_ONLY
+  AMOUNT_MISMATCH
+}
+
+model ReconciliationRun {
+  id          String                @id @default(uuid()) @db.Uuid
+  createdById String                @db.Uuid
+  createdBy   User                  @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  provider    String
+  fileName    String
+  periodStart DateTime              @db.Timestamptz(3)
+  periodEnd   DateTime              @db.Timestamptz(3)
+  createdAt   DateTime              @default(now()) @db.Timestamptz(3)
+  lines       ReconciliationLine[]
+
+  @@index([createdAt])
+  @@map("reconciliation_runs")
+}
+
+model ReconciliationLine {
+  id             String                 @id @default(uuid()) @db.Uuid
+  runId          String                 @db.Uuid
+  run            ReconciliationRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  type           ReconciliationLineType
+  transactionId  String
+  gatewayRef     String?
+  paymentId      String?                @db.Uuid
+  systemAmount   Int?
+  providerAmount Int?
+  createdAt      DateTime               @default(now()) @db.Timestamptz(3)
+
+  @@index([runId, type])
+  @@index([transactionId])
+  @@map("reconciliation_lines")
 }
 
 model OrderLog {

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { UserRound } from "@/components/ui/material-icon";
+import { loadCurrentUser } from "@/lib/api";
 
 interface SessionActionsProps {
   readonly accountLink?: boolean;
@@ -14,6 +15,12 @@ export function SessionActions({ accountLink = true }: SessionActionsProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [isAccountant, setIsAccountant] = useState(false);
+  useEffect(() => {
+    void loadCurrentUser().then((user) =>
+      setIsAccountant(Boolean(user?.roles.includes("ACCOUNTANT"))),
+    );
+  }, []);
   async function logout() {
     if (pending) return;
     setPending(true);
@@ -37,6 +44,7 @@ export function SessionActions({ accountLink = true }: SessionActionsProps) {
           Tài khoản
         </Link>
       )}
+      {isAccountant && <Link href="/accounting/reconciliation">Đối soát</Link>}
       <Button variant="outline" onClick={logout} disabled={pending}>
         {pending ? "Đang đăng xuất…" : "Đăng xuất"}
       </Button>
